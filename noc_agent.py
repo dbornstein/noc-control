@@ -109,7 +109,7 @@ def process_message(cfg, message):
 
         if command == 'stop':
             stream_name = device.get('streamName')
-            print('stopping stream: {streamName}')
+            print('stopping stream: {stream_name}')
             if device_type == 'magwell':
 
                 params = {
