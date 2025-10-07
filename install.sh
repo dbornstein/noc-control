@@ -7,7 +7,7 @@ sudo adduser --system --group --no-create-home noc-agent
 
 sudo mkdir -p /opt/noc-agent
 sudo chown noc-agent:noc-agent /opt/noc-agent
-sudo -u noc-agent python3 -m venv /opt/noc-agent/venv
+sudo -u noc-agent python3 -m venv /opt/noc-agent/venv3
 
 cd /tmp/noc-agent-src
 pip install -e .  # Editable install for easy updates
