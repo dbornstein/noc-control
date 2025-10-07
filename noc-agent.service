@@ -1,0 +1,20 @@
+[Unit]
+Description=NOC Agent for TV Control
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=noc-agent
+Group=noc-agent
+WorkingDirectory=/opt/noc-agent
+Environment=PATH=/opt/noc-agent/venv/bin
+ExecStart=/opt/noc-agent/venv/bin/python -m noc_agent.main --config /opt/noc-agent/config.yaml
+Restart=always  # This covers point 3 too!
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
