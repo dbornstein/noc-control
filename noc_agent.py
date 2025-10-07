@@ -22,6 +22,8 @@ cfg = {}
 def main(argv):
     global cfg
 
+    print(argv)
+
     usage = "usage: prog command [options]\n\n"
     parser = optparse.OptionParser(usage=usage, version="%prog 1.2")
 

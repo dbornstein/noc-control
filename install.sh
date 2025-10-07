@@ -58,7 +58,6 @@ CONFIG_PATH="$INSTALL_DIR/agent_config.json"
 if [ ! -f "$CONFIG_PATH" ] || [ ! -s "$CONFIG_PATH" ]; then  # If missing or empty
     echo "Copying agent configuration template to $CONFIG_PATH..."
     sudo cp "$INSTALL_SRC/agent_config_template.json" "$CONFIG_PATH"
-    sudo chown noc-agent:noc-agent "$CONFIG_PATH"
 fi
 sudo chown noc-agent:noc-agent "$CONFIG_PATH"  # Ensure ownership
 
@@ -81,17 +80,12 @@ sudo cp "$INSTALL_SRC/noc-agent.service" "$SERVICE_FILE"
 sudo chown root:root "$SERVICE_FILE"
 sudo chmod 644 "$SERVICE_FILE"
 
-# Update service file to include --agent flag in ExecStart (idempotent: add if not present)
-if ! grep -q "ExecStart.*--agent" "$SERVICE_FILE" 2>/dev/null; then
-    echo "Adding --agent flag to ExecStart for noc-agent.py invocation..."
-    sudo sed -i "s|\(ExecStart=.*noc-agent[^ ]*\)|\1 --agent|g" "$SERVICE_FILE"
-fi
-
-# Ensure ExecStart uses the correct config path
-sudo sed -i "s|--config-file [^ ]* |--config-file $CONFIG_PATH |g" "$SERVICE_FILE"  # Set explicit config if not already
-if ! grep -q "--config-file $CONFIG_PATH" "$SERVICE_FILE" 2>/dev/null; then
-    sudo sed -i "s|\(ExecStart=.*noc-agent[^ ]*\)|\1 --config-file $CONFIG_PATH|g" "$SERVICE_FILE"
-fi
+# Ensure ExecStart uses the console script (noc-agent) with --agent and --config-file flags
+# This fixes the ModuleNotFoundError by avoiding -m noc_agent.main
+echo "Configuring ExecStart for console script invocation..."
+sudo bash -c "
+    sed -i 's|ExecStart=.*|ExecStart=$VENV_DIR/bin/noc-agent --agent --config-file $CONFIG_PATH|g' '$SERVICE_FILE'
+"
 
 # Reload systemd, enable (idempotent), and manage service
 echo "Configuring systemd service..."
