@@ -1,4 +1,4 @@
-#!/bim/bash
+#!/bin/bash
 
 # cd /tmp  # Or clone your repo here
 # git clone https://github.com/dbornstein/noc-control.git noc-agent-src
