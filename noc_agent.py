@@ -131,7 +131,8 @@ def process_message(cfg, message):
                 params = {
                     "method": "get-signal-info",
                 }
-                send_magwell_command(cfg, device_id, params)
+                res = send_magwell_command(cfg, device_id, params)
+                print(res)
                 return
 
         elif command == 'play':
