@@ -155,8 +155,8 @@ def process_message(cfg, message):
             stream_url = message.get('streamUrl')
             stream_name = message.get('streamName')
 
-            device['streamName'] = quote(stream_name)
-            device['streamUrl'] = quote(stream_url)
+            device['streamName'] = stream_name
+            device['streamUrl'] = stream_url
 
 
             print(f'Device Type: {device_type}')
