@@ -264,6 +264,7 @@ def send_magwell_command(cfg, device_id, params):
     http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=6.0, read=6.0))
     # Try 3 times
     count = 0
+    response = ''
     while count < 3:
         response = http.request("GET", url, fields=params, headers=headers)
         if response.status == 200:
@@ -278,6 +279,8 @@ def send_magwell_command(cfg, device_id, params):
         print(response.data.decode('utf-8'))
         print('++++++++++++++++++++++++++++++++++++++\n')
     http.clear()
+    return json.loads(response.data.decode('utf-8'))
+    
         
 
 def update_device_status(cfg):
