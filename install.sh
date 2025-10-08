@@ -53,21 +53,18 @@ sudo -u noc-agent bash -c "
     pip install -e . --upgrade  # --upgrade ensures latest deps and code
 "
 
-# Copy/Overwrite configuration file (use template if no custom; idempotent overwrite for template case)
+# Copy configuration file (idempotent)
 CONFIG_PATH="$INSTALL_DIR/agent_config.json"
-if [ ! -f "$CONFIG_PATH" ] || [ ! -s "$CONFIG_PATH" ]; then  # If missing or empty
-    echo "Copying agent configuration template to $CONFIG_PATH..."
-    sudo cp "$INSTALL_SRC/agent_config_template.json" "$CONFIG_PATH"
-fi
+echo "Copying agent configuration to $CONFIG_PATH..."
+sudo cp "$INSTALL_SRC/agent_config.json" "$CONFIG_PATH"
 sudo chown noc-agent:noc-agent "$CONFIG_PATH"  # Ensure ownership
 
 # Enhanced config validation (warn if incomplete)
-if ! grep -q '"agentId":' "$CONFIG_PATH" 2>/dev/null || grep -q '"agentId": *"noc-agent-xxx"' "$CONFIG_PATH" 2>/dev/null; then
-    echo "WARNING: agent_config.json appears incomplete (missing or placeholder agentId). Edit it with your AWS API endpoint, API key, and agentId before restarting the service."
-    echo "Example: sudo vi $CONFIG_PATH"
+if ! grep -q '"agentId":' "$CONFIG_PATH" 2>/dev/null || grep -q '"agentId": *""' "$CONFIG_PATH" 2>/dev/null; then
+    echo "WARNING: agentId missing or empty in $CONFIG_PATH. Will prompt for it at the end."
 fi
-if ! grep -q '"apiEndpoint":' "$CONFIG_PATH" 2>/dev/null || grep -q '"apiEndpoint": *""' "$CONFIG_PATH" 2>/dev/null; then
-    echo "WARNING: apiEndpoint missing or empty in $CONFIG_PATH. Required for downloading config from AWS (MongoDB/TAG integration)."
+if ! grep -q '"configId":' "$CONFIG_PATH" 2>/dev/null || grep -q '"configId": *""' "$CONFIG_PATH" 2>/dev/null; then
+    echo "WARNING: configId missing or empty in $CONFIG_PATH. Will prompt for it at the end."
 fi
 if ! grep -q '"pubnubConfig"' "$CONFIG_PATH" 2>/dev/null || ! grep -q '"subscribeKey"' "$CONFIG_PATH" 2>/dev/null; then
     echo "WARNING: PubNub config (subscribeKey, etc.) missing in $CONFIG_PATH or downloaded agent config. Needed for AWS IoT command relay."
@@ -80,11 +77,28 @@ sudo cp "$INSTALL_SRC/noc-agent.service" "$SERVICE_FILE"
 sudo chown root:root "$SERVICE_FILE"
 sudo chmod 644 "$SERVICE_FILE"
 
-# Ensure ExecStart uses the console script (noc-agent) with --agent and --config-file flags
-# This fixes the ModuleNotFoundError by avoiding -m noc_agent.main
-echo "Configuring ExecStart for console script invocation..."
+# Ensure key [Service] directives for logging, unbuffered output, and working dir
+echo "Configuring service for reliable logging and execution..."
 sudo bash -c "
-    sed -i 's|ExecStart=.*|ExecStart=$VENV_DIR/bin/noc-agent --agent --config-file $CONFIG_PATH|g' '$SERVICE_FILE'
+    # Add/Ensure StandardOutput and StandardError to journal
+    if ! grep -q '^StandardOutput=journal' '$SERVICE_FILE'; then
+        sed -i '/^\[Service\]/a StandardOutput=journal' '$SERVICE_FILE'
+    fi
+    if ! grep -q '^StandardError=journal' '$SERVICE_FILE'; then
+        sed -i '/^\[Service\]/a StandardError=journal' '$SERVICE_FILE'
+    fi
+    # Add/Ensure unbuffered Python output
+    if ! grep -q '^Environment=PYTHONUNBUFFERED=1' '$SERVICE_FILE'; then
+        sed -i '/^\[Service\]/a Environment=PYTHONUNBUFFERED=1' '$SERVICE_FILE'
+    fi
+    # Ensure WorkingDirectory for module and includes access
+    if ! grep -q '^WorkingDirectory=' '$SERVICE_FILE'; then
+        echo 'WorkingDirectory='$INSTALL_SRC | sed -i '/^\[Service\]/a ' - '$SERVICE_FILE'
+    else
+        sed -i 's|^WorkingDirectory=.*|WorkingDirectory='$INSTALL_SRC'|g' '$SERVICE_FILE'
+    fi
+    # Ensure ExecStart uses python -m noc_agent (fixes argv passing via __main__)
+    sed -i 's|^ExecStart=.*|ExecStart='$VENV_DIR'/bin/python -m noc_agent --agent --config-file '$CONFIG_PATH'|g' '$SERVICE_FILE'
 "
 
 # Reload systemd, enable (idempotent), and manage service
@@ -96,7 +110,7 @@ if ! sudo systemctl is-enabled --quiet noc-agent; then
 fi
 
 # If config is incomplete, stop/don't start; else manage as before
-if grep -q '"agentId": *"noc-agent-xxx"' "$CONFIG_PATH" 2>/dev/null || ! grep -q '"apiEndpoint":' "$CONFIG_PATH" 2>/dev/null; then
+if grep -q '"agentId": *""' "$CONFIG_PATH" 2>/dev/null || grep -q '"configId": *""' "$CONFIG_PATH" 2>/dev/null || ! grep -q '"apiEndpoint":' "$CONFIG_PATH" 2>/dev/null; then
     echo "Config incomplete; stopping service to avoid crashes."
     sudo systemctl stop noc-agent || true
 else
@@ -113,10 +127,50 @@ fi
 echo "Checking service status..."
 sudo systemctl status noc-agent --no-pager -l
 
+# Prompt for agentId and configId if they are empty strings in the config
+echo "Checking and updating agent_config.json for agentId and configId..."
+NEEDS_PROMPT=$(python3 -c "
+import json
+try:
+    with open('$CONFIG_PATH', 'r') as f:
+        d = json.load(f)
+    if d.get('agentId', '') == '' or d.get('configId', '') == '':
+        print('PROMPT')
+    else:
+        print('OK')
+except:
+    print('PROMPT')
+" 2>/dev/null)
+
+if [ "$NEEDS_PROMPT" = "PROMPT" ]; then
+    echo "Prompting for missing/empty agentId and configId..."
+    read -p "Enter agentId (e.g., noc-agent-usnj01): " AGENT_ID
+    read -p "Enter configId (e.g., noc-config-001): " CONFIG_ID
+
+    # Update JSON using Python
+    sudo python3 -c "
+import json
+with open('$CONFIG_PATH', 'r') as f:
+    d = json.load(f)
+d['agentId'] = '$AGENT_ID'
+d['configId'] = '$CONFIG_ID'
+with open('$CONFIG_PATH', 'w') as f:
+    json.dump(d, f, indent=4)
+print('Updated agent_config.json with agentId: $AGENT_ID and configId: $CONFIG_ID')
+" || echo "Update failed; check JSON syntax in $CONFIG_PATH"
+
+    sudo chown noc-agent:noc-agent "$CONFIG_PATH"
+    echo "Restarting service to load updated config..."
+    sudo systemctl restart noc-agent
+    sudo systemctl status noc-agent --no-pager -l
+else
+    echo "agentId and configId are already set in $CONFIG_PATH."
+fi
+
 echo "Installation/Update complete! Source code is persistent in $INSTALL_SRC for future git pulls."
 echo "The NOC Agent service is configured for auto-start and restart on failure (via systemd)."
 echo "It subscribes to PubNub channels for AWS IoT-relayed commands from the control Lambda/UI and sends REST to Magewell Pro Convert NDI to HDMI decoders."
 echo "To view logs (for debugging API downloads or device logins): sudo journalctl -u noc-agent -f"
 echo "To stop/restart: sudo systemctl stop|restart noc-agent"
 echo "For HA: Duplicate setup (e.g., /opt/noc-agent-b) with unique agentId/config and service file."
-echo "Next: Customize $CONFIG_PATH (agentId, apiEndpoint for MongoDB/TAG sync, PubNub keys) and restart."
+echo "Next: Ensure apiEndpoint and PubNub keys are set in $CONFIG_PATH for MongoDB/TAG sync and command relay."
