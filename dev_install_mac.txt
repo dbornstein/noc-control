@@ -1,0 +1,24 @@
+
+
+# 1. Create and Activate Virtual Environment (isolated env for NOC agent deps):
+# Put this somewhere not in the noc-agent repo.
+
+mkdir noc-agent
+cd noc-agent
+git clone https://github.com/dbornstein/noc-control.git .
+
+python3 -m venv `pwd`/venv
+source ./venv/bin/activate
+pip install --upgrade pip
+pip install -e .
+
+
+#2 edit agent_config.json
+# set values for agentId and configId
+# example: "agentId": "noc-agent-davehome-1", "configId": "noc1"
+
+
+#3 Start the Noc Agent
+
+python -m noc_agent --agent --config-file agent_config.json
+

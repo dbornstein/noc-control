@@ -394,9 +394,10 @@ def start_vlc_subprocess(cfg):
     vlc_port = cfg.get('vlcPort')
     vlc_password = cfg.get('vlcPassword')
     vlc_delay = cfg.get('vlcStartDelay')
+    vlc_command = cfg.get('vlcCommand', 'vlc')
 
     vlc_cmd = [
-        'vlc',
+        vlc_command,
         '--extraintf', 'http',
         '--http-port', f'{vlc_port}',
         '--http-password', f'{vlc_password}',
