@@ -222,6 +222,10 @@ def setup_devices_for_location(cfg):
     #update_device_status(cfg)
 
 
+def force_ipv4_connection(host, port):
+    return socket.create_connection((host, port), timeout=5, source_address=("0.0.0.0", 0))
+
+
 def magwell_login(cfg, device):
 
     device_ip = device.get('ipAddress')
@@ -241,15 +245,18 @@ def magwell_login(cfg, device):
     }
     print(f'Logging into: {device_url}')
     try:
-        #http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
         http = urllib3.PoolManager(
-            # Disable urllib3 retry/backoff that can confuse flaky device servers
             retries=False,
-            headers={
-                "User-Agent": "curl/8.0",
-                "Connection": "close",   # many embedded servers prefer this
-            }
+            headers={"User-Agent": "curl/8.0", "Connection": "close"},
+            socket_options=urllib3.connection.HTTPConnection.default_socket_options + [
+            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            ],
         )
+
+        # Patch the connection creator
+        urllib3.connection.create_connection = force_ipv4_connection
+        
+
         print(f'trying device: {device_url}')
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
