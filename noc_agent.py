@@ -228,6 +228,33 @@ def force_ipv4_connection(host, port):
 
 def magwell_login(cfg, device):
 
+    print('using custom code!!!!!!!!!!!!!!!!!!!!!!!!!!')
+    import socket
+
+    host = "10.11.4.16"
+    path = "/mwapi?method=login&id=Admin&pass=e3afed0047b08059d0fada10f400c1e5"
+
+    req = (
+        f"GET {path} HTTP/1.0\r\n"
+        f"Host: {host}\r\n"
+        "User-Agent: curl/8.0\r\n"
+        "Accept: */*\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode("ascii")
+
+    with socket.create_connection((host, 80), timeout=5) as s:
+        s.sendall(req)
+        chunks = []
+        while True:
+            data = s.recv(4096)
+            if not data:
+                break
+            chunks.append(data)
+    raw = b"".join(chunks)
+    print(raw.decode("utf-8", errors="replace"))
+    return
+
     device_ip = device.get('ipAddress')
     device_id = device.get('deviceId')
     device_name = device.get('deviceName')
