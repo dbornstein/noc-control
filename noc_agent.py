@@ -250,6 +250,7 @@ def magwell_login(cfg, device):
                 "Connection": "close",   # many embedded servers prefer this
             }
         )
+        print(f'trying device: {device_url}')
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
         # response = magwell_http(device_url, params)
