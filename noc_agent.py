@@ -126,7 +126,13 @@ def process_message(cfg, message):
                 return
 
         elif command == 'status':
-            pass
+            if device_type == 'magwell':
+
+                params = {
+                    "method": "get-signal-info",
+                }
+                send_magwell_command(cfg, device_id, params)
+                return
 
         elif command == 'play':
             stream_url = message.get('streamUrl')
