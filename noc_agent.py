@@ -6,6 +6,7 @@ import subprocess
 import time
 import json
 
+import urllib3
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
