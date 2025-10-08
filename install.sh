@@ -192,5 +192,3 @@ echo "It subscribes to PubNub channels for AWS IoT-relayed commands from the con
 echo "To view logs (for debugging API downloads or device logins): sudo journalctl -u noc-agent -f"
 echo "To stop/restart: sudo systemctl stop|restart noc-agent"
 echo "For code updates: sudo $UPDATE_SCRIPT"
-echo "For HA: Duplicate setup (e.g., /opt/noc-agent-b) with unique agentId/config and service file."
-echo "Next: Ensure apiEndpoint and PubNub keys are set in $CONFIG_PATH for MongoDB/TAG sync and command relay."
