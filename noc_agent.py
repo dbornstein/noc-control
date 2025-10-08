@@ -222,10 +222,6 @@ def setup_devices_for_location(cfg):
     #update_device_status(cfg)
 
 
-def force_ipv4_connection(host, port):
-    return socket.create_connection((host, port), timeout=5, source_address=("0.0.0.0", 0))
-
-
 def magwell_login(cfg, device):
 
     device_ip = device.get('ipAddress')
@@ -244,12 +240,16 @@ def magwell_login(cfg, device):
         "pass": md5_password
     }
     print(f'Logging into: {device_url}')
-
     try:
-        
+        http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
+       
+        print(f'trying device: {device_url}')
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
-       
+        # response = magwell_http(device_url, params)
+        # print(response.status)
+        # print(response.json())
+
         sid = None
         if response.status == 200:
             sid = None
