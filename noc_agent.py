@@ -235,6 +235,8 @@ def magwell_login(cfg, device):
         # response = http.request("GET", device_url, fields=params)
         # http.clear()
         response = magwell_http(device_url, params)
+        print(response)
+        return
 
         sid = None
         if response.status == 200:
@@ -304,6 +306,8 @@ def magwell_http(url, params=None):
         raise
     finally:
         session.close()  # Cleans up for agent HA
+
+
 
 def send_magwell_command(cfg, device_id, params):
 
