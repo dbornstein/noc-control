@@ -396,6 +396,7 @@ def start_vlc_subprocess(cfg):
     vlc_delay = cfg.get('vlcStartDelay')
     vlc_command = cfg.get('vlcCommand', 'vlc')
 
+
     vlc_cmd = [
         vlc_command,
         '--extraintf', 'http',
@@ -404,6 +405,8 @@ def start_vlc_subprocess(cfg):
         '--no-playlist-autostart',
         '--no-video-title-show'
     ]
+    print(f'vlc Command: {vlc_cmd}')
+
     # Use subprocess.Popen to fork and exec
     process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(vlc_delay)
