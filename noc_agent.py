@@ -5,9 +5,12 @@ import sys
 import subprocess
 import time
 import json
+
 import urllib3
-from urllib3.exceptions import ProtocolError, MaxRetryError
+from urllib3.exceptions import ProtocolError
 from urllib3.util.retry import Retry
+from urllib.parse import urlencode
+
 import hashlib
 import optparse
 import traceback
