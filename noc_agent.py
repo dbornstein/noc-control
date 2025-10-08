@@ -83,7 +83,8 @@ def agent_listen(cfg):
 def process_message(cfg, message):
 
     try:
-        print(message)
+        print(f'Message Received:{message})
+        
         command =  message.get('command')
         if command not in ['refresh', 'stop', 'play', 'status']:
             print(f'Error: Invalid Command:{status} ')
