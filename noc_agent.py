@@ -251,19 +251,53 @@ def magwell_login(cfg, device):
     device['status'] = 'offline'
     return False
 
-def magwell_http(url,params):
-    http = urllib3.PoolManager(
-    headers={
-        'User-Agent': 'curl/7.88.1',  # Matches curl's default; adjust if needed
-        'Connection': 'close',        # Disable keep-alive to prevent early closure
-        'Accept': '*/*',              # Broad accept for JSON/HTML fallback
-    },
-    timeout=urllib3.Timeout(connect=10.0, read=30.0),  # Longer for Warp/NAT jitter
-    retries=Retry(0, backoff_factor=0),                # No retries to avoid max exceeded
-    proxies=None,                                      # Explicit no-proxy for local IP
-    )
-    return http.request('GET', url, fields=params)
+dimport urllib3
+from urllib3.exceptions import ProtocolError
+from urllib3.util.retry import Retry
+from urllib.parse import urlencode
 
+def magwell_http(url, params=None):
+    """
+    Simple HTTP GET caller for Magewell TV Controllers in NOC setup.
+    Mimics curl to avoid RemoteDisconnected errors via Warp tunnel.
+    
+    Args:
+        url (str): Base URL e.g., 'http://10.11.4.14/mwapi'
+        params (dict, optional): Query params e.g., {'method': 'login', 'id': 'Admin', 'pass': 'e3afed0047b08059d0fada10f400c1e5'}
+    
+    Returns:
+        urllib3.response.HTTPResponse: Raw response object for status, data, headers handling in Lambda or NOC-agent.
+    
+    Usage:
+        response = magwell_http('http://10.11.4.14/mwapi', {'method': 'login', 'id': 'Admin', 'pass': 'e3afed0047b08059d0fada10f400c1e5'})
+        if response.status == 200:
+            data = json.loads(response.data.decode('utf-8'))  # Handle JSON in caller
+            # Extract sid from response.headers.get('Set-Cookie') for session in MongoDB
+        # Integrates with PubNub-relayed commands from AWS IoT Core to agent.
+    """
+    if not hasattr(magwell_http, '_http'):
+        magwell_http._http = urllib3.PoolManager(
+            headers={
+                'User-Agent': 'curl/7.88.1',
+                'Connection': 'close',
+                'Accept': '*/*',
+            },
+            timeout=urllib3.Timeout(connect=10.0, read=30.0),
+            retries=Retry(0, backoff_factor=0),
+            proxies=None,
+        )
+    
+    http = magwell_http._http
+    full_url = url
+    if params:
+        full_url = f"{url}?{urlencode(params)}"
+    
+    try:
+        return http.request('GET', full_url)
+    except ProtocolError as e:
+        if 'Remote end closed' in str(e):
+            raise ValueError(f"Connection aborted by TVC at {url}—check Warp MTU or curl equiv. Params: {params}")
+        raise
 
 def send_magwell_command(cfg, device_id, params):
 
