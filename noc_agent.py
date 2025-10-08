@@ -251,10 +251,6 @@ def magwell_login(cfg, device):
     device['status'] = 'offline'
     return False
 
-dimport urllib3
-from urllib3.exceptions import ProtocolError
-from urllib3.util.retry import Retry
-from urllib.parse import urlencode
 
 def magwell_http(url, params=None):
     """
