@@ -236,7 +236,8 @@ def magwell_login(cfg, device):
         # response = http.request("GET", device_url, fields=params)
         # http.clear()
         response = magwell_http(device_url, params)
-        print(response)
+        print(response.status)
+        print(response.json())
         return
 
         sid = None
