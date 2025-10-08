@@ -244,6 +244,7 @@ def magwell_login(cfg, device):
         "pass": md5_password
     }
     print(f'Logging into: {device_url}')
+    import socket
     try:
         http = urllib3.PoolManager(
             retries=False,
@@ -255,7 +256,7 @@ def magwell_login(cfg, device):
 
         # Patch the connection creator
         urllib3.connection.create_connection = force_ipv4_connection
-        
+
 
         print(f'trying device: {device_url}')
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
