@@ -225,9 +225,10 @@ def magwell_login(cfg, device):
     }
     print(f'Logging into: {device_url}')
     try:
-        http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
-        response = http.request("GET", device_url, fields=params)
-        http.clear()
+        # http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
+        # response = http.request("GET", device_url, fields=params)
+        # http.clear()
+        response = magwell_http(device_url, params)
 
         sid = None
         if response.status == 200:
@@ -247,6 +248,19 @@ def magwell_login(cfg, device):
 
     device['status'] = 'offline'
     return False
+
+def magwell_http(url,params):
+    http = urllib3.PoolManager(
+    headers={
+        'User-Agent': 'curl/7.88.1',  # Matches curl's default; adjust if needed
+        'Connection': 'close',        # Disable keep-alive to prevent early closure
+        'Accept': '*/*',              # Broad accept for JSON/HTML fallback
+    },
+    timeout=urllib3.Timeout(connect=10.0, read=30.0),  # Longer for Warp/NAT jitter
+    retries=Retry(0, backoff_factor=0),                # No retries to avoid max exceeded
+    proxies=None,                                      # Explicit no-proxy for local IP
+    )
+    return = http.request('GET', url, fields=params)
 
 
 def send_magwell_command(cfg, device_id, params):
