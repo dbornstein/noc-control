@@ -228,37 +228,6 @@ def force_ipv4_connection(host, port):
 
 def magwell_login(cfg, device):
 
-    print('using custom code!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    import socket
-
-    host = "10.11.4.16"
-    path = "/mwapi?method=login&id=Admin&pass=e3afed0047b08059d0fada10f400c1e5"
-
-    req = (
-        f"GET {path} HTTP/1.0\r\n"
-        f"Host: {host}\r\n"
-        "User-Agent: curl/8.0\r\n"
-        "Accept: */*\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-    ).encode("ascii")
-
-    with socket.create_connection((host, 80), timeout=5) as s:
-        s.sendall(req)
-        chunks = []
-        while True:
-            data = s.recv(4096)
-            if not data:
-                break
-            chunks.append(data)
-    raw = b"".join(chunks)
-    print('HERE!!!')
-    print(raw.decode("utf-8", errors="replace"))
-    print(raw)
-    print('HERE2!!!')
-
-    return
-
     device_ip = device.get('ipAddress')
     device_id = device.get('deviceId')
     device_name = device.get('deviceName')
@@ -275,27 +244,12 @@ def magwell_login(cfg, device):
         "pass": md5_password
     }
     print(f'Logging into: {device_url}')
-    import socket
+
     try:
-        http = urllib3.PoolManager(
-            retries=False,
-            headers={"User-Agent": "curl/8.0", "Connection": "close"},
-            socket_options=urllib3.connection.HTTPConnection.default_socket_options + [
-            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            ],
-        )
-
-        # Patch the connection creator
-        urllib3.connection.create_connection = force_ipv4_connection
-
-
-        print(f'trying device: {device_url}')
+        
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
-        # response = magwell_http(device_url, params)
-        # print(response.status)
-        # print(response.json())
-
+       
         sid = None
         if response.status == 200:
             sid = None
