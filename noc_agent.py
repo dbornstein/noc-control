@@ -260,7 +260,7 @@ def magwell_http(url,params):
     retries=Retry(0, backoff_factor=0),                # No retries to avoid max exceeded
     proxies=None,                                      # Explicit no-proxy for local IP
     )
-    return = http.request('GET', url, fields=params)
+    return http.request('GET', url, fields=params)
 
 
 def send_magwell_command(cfg, device_id, params):
