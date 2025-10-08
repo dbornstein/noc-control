@@ -254,6 +254,9 @@ def magwell_login(cfg, device):
     raw = b"".join(chunks)
     print('HERE!!!')
     print(raw.decode("utf-8", errors="replace"))
+    print(raw)
+    print('HERE2!!!')
+
     return
 
     device_ip = device.get('ipAddress')
