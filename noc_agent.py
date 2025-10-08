@@ -241,8 +241,16 @@ def magwell_login(cfg, device):
     }
     print(f'Logging into: {device_url}')
     try:
-        http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
-        response = http.request("GET", device_url, fields=params)
+        #http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
+        http = urllib3.PoolManager(
+            # Disable urllib3 retry/backoff that can confuse flaky device servers
+            retries=False,
+            headers={
+                "User-Agent": "curl/8.0",
+                "Connection": "close",   # many embedded servers prefer this
+            }
+        )
+        response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
         # response = magwell_http(device_url, params)
         # print(response.status)
