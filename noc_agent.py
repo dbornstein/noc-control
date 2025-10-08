@@ -12,6 +12,15 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib.parse import urlencode
 
+import requests
+import subprocess
+import json
+from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib.parse import urlencode
+import time
+import os
 
 import hashlib
 import optparse
@@ -258,57 +267,82 @@ def magwell_login(cfg, device):
 
     device['status'] = 'offline'
     return False
+import requests
+import subprocess
+import json
+from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib.parse import urlencode
+import time
+import os  # For env vars like MONGODB_URI
 
-def magwell_http(url, params=None):
+# Assume pymongo: from pymongo import MongoClient; client = MongoClient(os.getenv('MONGODB_URI'))
+
+def magwell_http(url, params=None, tvc_id='unknown', log_to_mongo=True):
     """
-    Simple HTTP GET for Magewell API in NOC control agent.
-    Mimics curl to sidestep disconnects over Warp tunnel.
-    
-    Args:
-        url (str): Base e.g., 'http://10.11.4.13/mwapi'
-        params (dict, optional): Query e.g., {'method': 'login', 'id': 'Admin', 'pass': 'e3afed0047b08059d0fada10f400c1e5'}
-    
-    Returns:
-        requests.Response: Raw response for caller to check status, json(), headers.
-    
-    Usage in agent after PubNub receipt:
-        response = magwell_http('http://10.11.4.13/mwapi', {'method': 'login', 'id': 'Admin', 'pass': 'e3afed0047b08059d0fada10f400c1e5'})
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 0:
-                sid = None
-                for cookie in response.cookies:
-                    if cookie.name == 'sid':
-                        sid = cookie.value
-                # Log sid to MongoDB for TVC (IP: 10.11.4.13) registration
+    Tunnel-optimized HTTP GET for Magewell TVC over Warp.
+    Probes MTU on abort; logs for MongoDB/UI (TAG stream debugging).
     """
     full_url = url
     if params:
         full_url = f"{url}?{urlencode(params)}"
     
-    # Session for curl-like headers and no-keep-alive
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'curl/7.88.1',
-        'Connection': 'close',  # Avoids persistent conn issues on embedded Magewell server
+        'Connection': 'close',
         'Accept': '*/*',
     })
     
-    # Mount adapter with no retries, Warp-friendly timeouts
     retry_strategy = Retry(total=0, backoff_factor=0)
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
     
     try:
-        response = session.get(full_url, timeout=(10.0, 30.0), proxies=None)
+        time.sleep(0.5)  # Tunnel/server tolerance
+        # Tunnel-optimized: Longer connect for Warp latency
+        response = session.get(full_url, timeout=(15.0, 30.0), proxies=None)
         return response
     except requests.exceptions.ConnectionError as e:
-        if 'Remote end closed' in str(e):
-            raise ValueError(f"Connection aborted by TVC at {url}—test curl equiv.; check Warp MTU.")
+        if 'Remote end closed' in str(e) or 'Connection aborted' in str(e):
+            # MTU probe fallback
+            mtu_probe = subprocess.run(['ping', '-M', 'do', '-s', '1372', '-c', '1', url.split('/')[2].split(':')[0]], 
+                                     capture_output=True, text=True, timeout=10)
+            mtu_ok = '0% packet loss' in mtu_probe.stdout or mtu_probe.returncode == 0
+            
+            # Curl log for comparison
+            curl_cmd = ['curl', '-v', full_url, '-H', 'Connection: close', '--max-time', '15', '--silent', '--show-error']
+            curl_result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=20)
+            curl_log = f"STDOUT: {curl_result.stdout}\nSTDERR: {curl_result.stderr}\nRC: {curl_result.returncode}"
+            
+            error_msg = f"Tunnel abort at {url} (MTU viable: {mtu_ok}). Suggest: ip link set dev warp0 mtu 1420. Curl: {curl_log}"
+            if log_to_mongo:
+                log_entry = {
+                    'tvc_id': tvc_id,  # e.g., 'NJMCR_M1'
+                    'ip': url.split('/')[2].split(':')[0],
+                    'method': params.get('method', 'unknown') if params else 'unknown',
+                    'error': str(e),
+                    'mtu_probe': mtu_ok,
+                    'curl_log': curl_log,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'agent': 'usnj01nuk01',
+                    'suggested_fix': 'Set Warp MTU to 1420'
+                }
+                # client['noc_db']['tvc_logs'].insert_one(log_entry)
+                print(f"[NJMCR_M1] Mongo log: {log_entry}")
+            
+            raise ValueError(error_msg)
         raise
     finally:
-        session.close()  # Cleans up for agent HA
+        session.close()
 
+# Usage post-PubNub receipt (e.g., {"action": "switch", "tvc": "NJMCR_M1", "ndi_url": "ndi://tag-stream-from-mongo"}):
+# response = magwell_http('http://10.11.4.11/mwapi', {'method': 'login', ...}, tvc_id='NJMCR_M1')
+# if response.status_code == 200 and response.json().get('status') == 0:
+#     sid = response.cookies.get('sid')
+#     # Mongo update: db.tvc_sessions.update_one({'ip': '10.11.4.11'}, {'$set': {'sid': sid}})
+#     # Follow-up: set-channel with NDI URL via session
 
 
 def send_magwell_command(cfg, device_id, params):
