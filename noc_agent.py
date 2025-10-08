@@ -252,6 +252,7 @@ def magwell_login(cfg, device):
                 break
             chunks.append(data)
     raw = b"".join(chunks)
+    print('HERE!!!')
     print(raw.decode("utf-8", errors="replace"))
     return
 
