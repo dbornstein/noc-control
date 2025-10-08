@@ -85,7 +85,11 @@ def process_message(cfg, message):
     try:
         print(message)
         command =  message.get('command')
+        if command not in ['refresh', 'stop', 'play', 'status']:
+            print(f'Error: Invalid Command:{status} ')
+            return
 
+        ''' Appliance Based commands '''
         if command == 'refresh':
             agent_id = message.get('agentId')
             local_agent_id = cfg.get('agentId')
@@ -100,7 +104,6 @@ def process_message(cfg, message):
             return
 
         device_id = message.get('deviceId')
-
         local_devices = cfg.get('localDevices')
         device = local_devices.get(device_id)
         device_type = device.get('deviceType')
@@ -119,9 +122,12 @@ def process_message(cfg, message):
                     "name": stream_name
                 }
                 send_magwell_command(cfg, device_id, params)
+                return
 
+        elif command == 'status':
+            pass
 
-        if command == 'play':
+        elif command == 'play':
             stream_url = message.get('streamUrl')
             stream_name = message.get('streamName')
 
@@ -166,7 +172,6 @@ def process_message(cfg, message):
                     start_vlc_subprocess(cfg)
 
                 send_vlc_command(cfg, stream_url)
-
             #update_device_status(cfg)
     except Exception as e:
         print(f'process_message exception: {e}')
