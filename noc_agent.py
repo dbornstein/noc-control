@@ -571,7 +571,7 @@ def magwell_http(url, params=None, tvc_id='unknown', log_to_mongo=True):
             fix_suggest = f"sudo ip link set dev warp0 mtu {viable_mtu} && warp-cli reconnect" if viable_mtu < 1280 else None
             
             # Curl baseline
-            curl_cmd = ['curl', '-v', full_url, '-H', 'Connection: close', '--max-time', '15', '--silent', '--show-error']
+            curl_cmd = ['/usr/bin/curl', '-v', full_url, '-H', 'Connection: close', '--max-time', '15', '--silent', '--show-error']
             curl_result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=20)
             curl_log = f"STDOUT: {curl_result.stdout}\nSTDERR: {curl_result.stderr}\nRC: {curl_result.returncode}"
             
