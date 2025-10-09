@@ -6,6 +6,8 @@ import subprocess
 import time
 import json
 
+import logging
+
 import urllib3
 import requests
 from requests.adapters import HTTPAdapter
@@ -105,23 +107,27 @@ def process_message(cfg, message):
         print(f'Message Received:{message}')
 
         command =  message.get('command')
-        if command not in ['refresh', 'stop', 'play', 'status']:
-            print(f'Error: Invalid Command:{status} ')
+        if command not in ['refresh', 'stop', 'play', 'status','update']:
+            print(f'Error: Invalid Command:{command}')
             return
 
         ''' Appliance Based commands '''
-        if command == 'refresh':
+        if command in ['refresh', 'update']:
             agent_id = message.get('agentId')
             local_agent_id = cfg.get('agentId')
             if agent_id != local_agent_id:
-                print(f'refresh for {agent_id} not for this agent ({local_agent_id})')
+                print(f'{command} for {agent_id} not for this agent ({local_agent_id})')
+                return
+            if command == 'refresh':
+                print('refresh command received')
+                cfg = load_config(cfg)
+                setup_devices_for_location(cfg)
+                print('refresh complete')
+                return
+            if command == 'update':
+                execute_agent_update()
                 return
 
-            print('refresh command received')
-            cfg = load_config(cfg)
-            setup_devices_for_location(cfg)
-            print('refresh complete')
-            return
 
         device_id = message.get('deviceId')
         local_devices = cfg.get('localDevices')
@@ -483,132 +489,34 @@ class StatusListener(SubscribeListener):
     def status(self, pubnub, status):
         print(f'Status: {status.category.name}')
 
-'''
-Class Agent:
-    def __init__(self, )
 
+def execute_agent_update():
 
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
 
-
-
-class PlaybackDevice:
-    def __init__(self):
-        pass
-
-    def play():
-        pass
-
-    def stop():
-        pass
-
-
-def MagwellDevice(PlaybackDevice):
-    def __init__(self, )
-    
-
-'''
-
-
-import requests
-import subprocess
-import json
-import re
-from datetime import datetime
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib.parse import urlencode
-import time
-import os
-# from pymongo import MongoClient; client = MongoClient(os.getenv('MONGODB_URI'))  # AWS MongoDB
-
-def probe_mtu(ip, start_mtu=1200, min_mtu=1000, step=20):
-    """
-    Probe viable MTU over Warp for TVC path (starts low due to PMTUD failure).
-    Returns highest working MTU + avg latency; for MongoDB/UI logging.
-    """
-    current_mtu = start_mtu
-    while current_mtu >= min_mtu:
-        data_size = current_mtu - 28  # ICMP/IP overhead
-        try:
-            probe = subprocess.run(['/bin/ping', '-M', 'do', '-s', str(data_size), '-c', '1', ip], 
-                                 capture_output=True, text=True, timeout=10)
-            if probe.returncode == 0:
-                latencies = re.findall(r'time=([\d.]+) ms', probe.stdout)
-                avg_latency = sum(float(lat) for lat in latencies) / len(latencies) if latencies else 0
-                return current_mtu, avg_latency
-        except subprocess.TimeoutExpired:
-            pass
-        current_mtu -= step
-    return min_mtu, float('inf')  # Fallback: Flag for alert
-
-def magwell_http(url, params=None, tvc_id='unknown', log_to_mongo=True):
-    """
-    PMTUD-resilient HTTP GET for Magewell TVC (e.g., login for NDI set-channel from TAG).
-    Probes from 1200 MTU on abort; logs to MongoDB for operator UI (EventBridge-cached streams).
-    """
-    full_url = url
-    if params:
-        full_url = f"{url}?{urlencode(params)}"
-    
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'curl/7.88.1',
-        'Connection': 'close',
-        'Accept': '*/*',
-    })
-    
-    retry_strategy = Retry(total=0, backoff_factor=0)
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    
-    ip = url.split('/')[2].split(':')[0]  # e.g., 10.11.4.14
-    
+    script_path = '/opt/noc-agent/update.sh'
     try:
-        time.sleep(0.5)  # Jitter buffer
-        response = session.get(full_url, timeout=(15.0, 30.0), proxies=None)
-        return response
-    except requests.exceptions.ConnectionError as e:
-        if 'Remote end closed' in str(e) or 'Connection aborted' in str(e):
-            # PMTUD probe starting low
-            viable_mtu, avg_latency = probe_mtu(ip)
-            mtu_msg = f"Viable MTU: {viable_mtu}; latency: {avg_latency:.1f}ms"
-            fix_suggest = f"sudo ip link set dev warp0 mtu {viable_mtu} && warp-cli reconnect" if viable_mtu < 1280 else None
-            
-            # Curl baseline
-            curl_cmd = ['/usr/bin/curl', '-v', full_url, '-H', 'Connection: close', '--max-time', '15', '--silent', '--show-error']
-            curl_result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=20)
-            curl_log = f"STDOUT: {curl_result.stdout}\nSTDERR: {curl_result.stderr}\nRC: {curl_result.returncode}"
-            
-            error_msg = f"PMTUD abort at {url} ({mtu_msg}). Curl: {curl_log}"
-            if log_to_mongo:
-                log_entry = {
-                    'tvc_id': tvc_id,
-                    'ip': ip,
-                    'method': params.get('method', 'unknown') if params else 'unknown',
-                    'error': str(e),
-                    'viable_mtu': viable_mtu,
-                    'avg_latency_ms': avg_latency,
-                    'curl_log': curl_log,
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'agent': 'usnj01nuk01',
-                    'suggested_fix': fix_suggest
-                }
-                # client['noc_db']['tvc_logs'].insert_one(log_entry)
-                print(f"[{tvc_id}] Mongo log: {json.dumps(log_entry, indent=2)}")
-            
-            raise ValueError(error_msg)
-        raise
-    finally:
-        session.close()
+        # Run silently; capture for local log (non-blocking)
+        result = subprocess.run(
+            [script_path, '--silent'],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd='/opt/noc-agent'
+        )
+        logger.info(f"Update stdout: {result.stdout.strip()}")
+        if result.stderr:
+            logger.warning(f"Update stderr: {result.stderr.strip()}")
 
-# PubNub Usage (post-IoT Core relay: {"action": "switch", "tvc": "NJMCR_M4", "ndi_url": "ndi://mongo-tag"}):
-# response = magwell_http('http://10.11.4.14/mwapi', {'method': 'login', ...}, tvc_id='NJMCR_M4')
-# if response.ok and response.json().get('status') == 0:
-#     sid = response.cookies.get('sid')
-#     # Mongo: db.tvc_registrations.update_one({'tvc_id': 'NJMCR_M4'}, {'$set': {'sid': sid, 'mtu': viable_mtu}})
-#     # Follow: set_channel = magwell_http('http://10.11.4.14/mwapi', {'method': 'set-channel', 'url': ndi_url}, cookies={'sid': sid})
-#     pubnub.publish('tvc-status.njmcr', {'tvc': 'NJMCR_M4', 'status': 'active', 'mtu': viable_mtu})
+        logger.info("Update initiated; restarting via systemd...")
 
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Update failed (code {e.returncode}): {e.stderr}"
+        logger.error(error_msg)
+        # No PubNub publish; rely on HA peer or manual check
+    except FileNotFoundError:
+        logger.error(f"update.sh not found at {script_path}")
 
 
 if __name__ == '__main__':
