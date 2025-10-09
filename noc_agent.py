@@ -296,14 +296,13 @@ def send_magwell_command(cfg, device_id, params):
     ip = device.get('ipAddress')
     url = f'http://{ip}/mwapi'
 
-    print(f'\t [url]: {url}')
 
     headers = {
         'Cookie': f'sid={sid}'
     }
-     print(f'\t [url]:     {url}')
-     print(f'\t [headers]: {headers}')
-     print(f'\t [params]:  {params}')
+    print(f'\t [url]:     {url}')
+    print(f'\t [headers]: {headers}')
+    print(f'\t [params]:  {params}')
 
     http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=6.0, read=6.0))
     # Try 3 times
