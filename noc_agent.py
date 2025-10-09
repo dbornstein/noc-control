@@ -44,7 +44,7 @@ def main(argv):
     global cfg
 
     with open("agent_version", "r") as f:
-    version = f.read().strip()
+        version = f.read().strip()
     print(f'starting agent version: {version}')
 
     usage = "usage: prog command [options]\n\n"
