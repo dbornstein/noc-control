@@ -244,6 +244,7 @@ def magwell_login(cfg, device):
     device_url = f'http://{device_ip}/mwapi'
 
     md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
+    print(f'md5-password': {md5_password}')
 
     params = {
         "method": "login",
