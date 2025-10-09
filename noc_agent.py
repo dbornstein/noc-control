@@ -31,6 +31,9 @@ from urllib.parse import urlencode
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub, SubscribeListener
 
+# commonPath = "{0}/common".format(os.path.dirname(os.path.abspath(__file__)))
+# sys.path.append( commonPath)
+
 # Configure PubNub
 pnconfig = PNConfiguration()
 cfg = {}
