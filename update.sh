@@ -46,4 +46,4 @@ else
   fi
 fi
 
-echo "$(date): Update complete! Agent ready for PubNub commands to Magewell decoders." >> "$LOG_FILE"
+echo "$(date): Update complete" >> "$LOG_FILE"
