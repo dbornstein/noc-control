@@ -238,7 +238,6 @@ def magwell_login(cfg, device):
 
     device_ip = device.get('ipAddress')
     device_id = device.get('deviceId')
-    device_name = device.get('deviceName')
     username = device.get('username')
     password = device.get('password')
 
@@ -270,6 +269,8 @@ def magwell_login(cfg, device):
             device['sid'] = sid
             cfg['localDevices'][device_id] = device
             return True
+        else:
+            print(f'Error: Login Status code: {response.status}')
 
     except Exception as e:
         print(f'[{device_id}]: connect failed - {e}')
