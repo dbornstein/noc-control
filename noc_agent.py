@@ -257,10 +257,7 @@ def magwell_login(cfg, device):
        
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
-        # response = magwell_http(device_url, params)
-        # print(response.status)
-        # print(response.json())
-
+      
         sid = None
         if response.status == 200:
             sid = None
@@ -299,9 +296,15 @@ def send_magwell_command(cfg, device_id, params):
     ip = device.get('ipAddress')
     url = f'http://{ip}/mwapi'
 
+    print(f'\t [url]: {url}')
+
     headers = {
         'Cookie': f'sid={sid}'
     }
+     print(f'\t [url]:     {url}')
+     print(f'\t [headers]: {headers}')
+     print(f'\t [params]:  {params}')
+
     http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=6.0, read=6.0))
     # Try 3 times
     count = 0
@@ -320,7 +323,9 @@ def send_magwell_command(cfg, device_id, params):
         print(response.data.decode('utf-8'))
         print('++++++++++++++++++++++++++++++++++++++\n')
     http.clear()
-    return json.loads(response.data.decode('utf-8'))
+    print(f'response: {response.data.decode('utf-8')}')
+
+    #return json.loads(response.data.decode('utf-8'))
     
         
 
