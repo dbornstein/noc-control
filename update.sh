@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PATH=/usr/bin:$PATH
+export PATH=/usr/bin:$PATH
 
 # Parse flags (for silent Python calls)
 SILENT=false
