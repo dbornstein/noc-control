@@ -275,6 +275,7 @@ def magwell_login(cfg, device):
     except Exception as e:
         print(f'[{device_id}]: connect failed - {e}')
 
+    print('\tSetting device to offline')
     device['status'] = 'offline'
     return False
 
