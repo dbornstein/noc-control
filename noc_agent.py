@@ -244,14 +244,13 @@ def magwell_login(cfg, device):
     device_url = f'http://{device_ip}/mwapi'
 
     md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
-    print(f'md5-password: {md5_password}')
 
     params = {
         "method": "login",
         "id": f'{username}',
         "pass": md5_password
     }
-    print(f'Logging into: {device_url}')
+    print(f'\tLogging into: {device_url}')
     try:
         http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
        
@@ -265,13 +264,13 @@ def magwell_login(cfg, device):
                 if header.lower() == 'set-cookie':
                     sid = value.split(';')[0].split('=')[1]
 
-            print(f'setting sid: {sid} on {device_id}')
+            print(f'\tsetting sid: {sid} on {device_id}')
             device['status'] = 'online'
             device['sid'] = sid
             cfg['localDevices'][device_id] = device
             return True
         else:
-            print(f'Error: Login Status code: {response.status}')
+            print(f'\t**Error: Login Status code: {response.status}')
 
     except Exception as e:
         print(f'[{device_id}]: connect failed - {e}')
