@@ -188,7 +188,6 @@ sudo systemctl status noc-agent --no-pager -l
 
 echo "Installation/Update complete! Source code is persistent in $INSTALL_SRC for future git pulls."
 echo "The NOC Agent service is configured for auto-start and restart on failure (via systemd)."
-echo "It subscribes to PubNub channels for AWS IoT-relayed commands from the control Lambda/UI and sends REST to Magewell Pro Convert NDI to HDMI decoders."
 echo "To view logs (for debugging API downloads or device logins): sudo journalctl -u noc-agent -f"
 echo "To stop/restart: sudo systemctl stop|restart noc-agent"
 echo "For code updates: sudo $UPDATE_SCRIPT"

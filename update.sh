@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "Starting update"
+
 export PATH=/usr/bin:$PATH
 
 # Parse flags (for silent Python calls)
