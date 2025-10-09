@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Starting update"
+echo "Starting update" 
 
 export PATH=/usr/bin:$PATH
 
