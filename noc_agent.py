@@ -252,7 +252,6 @@ def magwell_login(cfg, device):
     try:
         http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
        
-        print(f'trying device: {device_url}')
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
         # response = magwell_http(device_url, params)

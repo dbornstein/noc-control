@@ -1,5 +1,7 @@
 #!/bin/bash
 
+PATH=/usr/bin:$PATH
+
 # Parse flags (for silent Python calls)
 SILENT=false
 while [[ $# -gt 0 ]]; do
