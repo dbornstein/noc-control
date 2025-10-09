@@ -17,7 +17,7 @@ set -e  # Exit on error
 
 
 LOG_FILE="/tmp/noc-agent-update.log"
-sudo -u rm $LOG_FILE
+sudo rm $LOG_FILE
 echo "$(date): Starting NOC Agent update..." >> "$LOG_FILE"
 
 # Step 1: Pull latest from git (updates noc-agent.py with TAG stream URL handling)
