@@ -5,36 +5,26 @@ import sys
 import subprocess
 import time
 import json
-
-import logging
-
-import urllib3
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib.parse import urlencode
-
-import requests
-import subprocess
-import json
-from datetime import datetime
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib.parse import urlencode
 import time
 import os
 
-import hashlib
 import optparse
 import traceback
-from urllib.parse import parse_qs, quote
-from urllib.parse import urlencode
-
+import urllib3
+from urllib3.util.retry import Retry
+from urllib.parse import parse_qs, quote, urlencode
+from datetime import datetime
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub, SubscribeListener
 
-# commonPath = "{0}/common".format(os.path.dirname(os.path.abspath(__file__)))
-# sys.path.append( commonPath)
+
+# add includes to the path to access the local include directory
+commonPath = "{0}/libraries".format(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append( commonPath)
+
+from magwell import send_magwell_command, magwell_login
+from vlc import send_vlc_command, start_vlc_subprocess
+
 
 # Configure PubNub
 pnconfig = PNConfiguration()
@@ -75,6 +65,12 @@ def executeCommands(cfg, options):
         agent_listen(cfg)
         sys.exit()
 
+
+
+'''
+Starts the Agent Listener thread. On each pubnub message received, this thread calls
+process message
+'''
 def agent_listen(cfg):
 
     agent_id = cfg.get('agentConfig').get('agentId')
@@ -234,52 +230,6 @@ def setup_devices_for_location(cfg):
     #update_device_status(cfg)
 
 
-def magwell_login(cfg, device):
-
-    device_ip = device.get('ipAddress')
-    device_id = device.get('deviceId')
-    username = device.get('username')
-    password = device.get('password')
-
-    device_url = f'http://{device_ip}/mwapi'
-
-    md5_password = hashlib.md5(password.encode('utf-8')).hexdigest()
-
-    params = {
-        "method": "login",
-        "id": f'{username}',
-        "pass": md5_password
-    }
-    print(f'\tLogging into: {device_url}')
-    try:
-        http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
-       
-        response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
-        http.clear()
-      
-        sid = None
-        if response.status == 200:
-            sid = None
-            for header, value in response.headers.items():
-                if header.lower() == 'set-cookie':
-                    sid = value.split(';')[0].split('=')[1]
-
-            print(f'\tsetting sid: {sid} on {device_id}')
-            device['status'] = 'online'
-            device['sid'] = sid
-            cfg['localDevices'][device_id] = device
-            return True
-        else:
-            print(f'\t**Error: Login Status code: {response.status}')
-
-    except Exception as e:
-        print(f'[{device_id}]: connect failed - {e}')
-
-    print('\tSetting device to offline')
-    device['status'] = 'offline'
-    return False
-
-
 # Usage post-PubNub receipt (e.g., {"action": "switch", "tvc": "NJMCR_M1", "ndi_url": "ndi://tag-stream-from-mongo"}):
 # response = magwell_http('http://10.11.4.11/mwapi', {'method': 'login', ...}, tvc_id='NJMCR_M1')
 # if response.status_code == 200 and response.json().get('status') == 0:
@@ -287,54 +237,7 @@ def magwell_login(cfg, device):
 #     # Mongo update: db.tvc_sessions.update_one({'ip': '10.11.4.11'}, {'$set': {'sid': sid}})
 #     # Follow-up: set-channel with NDI URL via session
 
-
-def send_magwell_command(cfg, device_id, params):
-
-    print('--------- Sending Magwell Command+++++++++')
-    print(params)
-    print(f'sending command to: {device_id}')
-    device = cfg.get('localDevices',{}).get(device_id)
-    sid = device.get('sid')
-    ip = device.get('ipAddress')
-    url = f'http://{ip}/mwapi'
-
-
-    headers = {
-        'Cookie': f'sid={sid}'
-    }
-    print(f'\t [url]:     {url}')
-    print(f'\t [headers]: {headers}')
-    print(f'\t [params]:  {params}')
-
-    http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=6.0, read=6.0))
-    # Try 3 times
-    count = 0
-    response = ''
-    while count < 3:
-        response = http.request("GET", url, fields=params, headers=headers)
-        if response.status == 200:
-            res = json.loads(response.data.decode('utf-8'))
-            status = res.get('status')
-            if status == 0:
-                # We are good.
-                break
-            elif status == 37:
-                print('Login expired(37): calling login')
-                magwell_login(cfg,device)
-                count += 1
-                continue
-            else:
-                print(f'Status not ok: {res}')
-                count +=1 
-        else:
-            r = response.data.decode('utf-8')
-            print(f'bad response[{response.status}]: {r}')
-            http.clear()
-            return False
-    print(f'response: {response.data.decode('utf-8')}')
-    return True
-    
-        
+  
 
 def update_device_status(cfg):
     print('sending updated status')
@@ -423,62 +326,6 @@ def load_config(cfg, agent_cfg_file=None):
 
     return cfg
 
-
-def send_vlc_command(cfg, stream_url):
-
-    vlc_hostname = cfg.get('vlcHostname')
-    vlc_port = cfg.get('vlcPort')
-    vlc_password = cfg.get('vlcPassword')
-
-    http = urllib3.PoolManager()
-    headers = urllib3.util.make_headers(basic_auth=f':{vlc_password}')
-
-    url = f'http://{vlc_hostname}:{vlc_port}/requests/status.xml?command=in_play&input={stream_url}'
-    response = http.request("GET", url, headers=headers)
-    if response.status != 200:
-        print(f"Failed to send command, status: {response.status}")
-        print(response.data.decode('utf-8'))
-
-    play_url = f'http://{vlc_hostname}:{vlc_port}/requests/status.xml?command=pl_play'
-    response = http.request("GET", play_url, headers=headers)
-    if response.status != 200:
-        print(f"Failed to send command, status: {response.status}")
-        print(response.data.decode('utf-8'))
-
-
-def start_vlc_subprocess(cfg):
-    # Launch VLC in a subprocess with HTTP interface
-
-    if not cfg.get('vlcAutostart'):
-        return
-
-    if cfg.get('VLC_RUNNING'):
-        return
-
-    cfg['VLC_RUNNING'] = True
-
-    print('starting VLC process')
-    vlc_hostname = cfg.get('vlcHostname')
-    vlc_port = cfg.get('vlcPort')
-    vlc_password = cfg.get('vlcPassword')
-    vlc_delay = cfg.get('vlcStartDelay')
-    vlc_command = cfg.get('vlcCommand', 'vlc')
-
-
-    vlc_cmd = [
-        vlc_command,
-        '--extraintf', 'http',
-        '--http-port', f'{vlc_port}',
-        '--http-password', f'{vlc_password}',
-        '--no-playlist-autostart',
-        '--no-video-title-show'
-    ]
-    print(f'vlc Command: {vlc_cmd}')
-
-    # Use subprocess.Popen to fork and exec
-    process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(vlc_delay)
-    return process
 
 
 def download_json(url, headers=None, db_api=False):
