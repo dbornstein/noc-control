@@ -3,7 +3,8 @@ import urllib3
 import hashlib
 import json
 
-from msg_logger import MsgLogger, lOG
+from msg_logger import MsgLogger
+from msg_logger import LOG
 
 
 
@@ -23,6 +24,8 @@ def magwell_login(cfg, device):
         "id": f'{username}',
         "pass": md5_password
     }
+    LOG.set('magwel_params', params)
+    LOG.set('magwell_url', device_url)
     print(f'\tLogging into: {device_url}')
     try:
         http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=10.0, read=10.0))
@@ -30,6 +33,9 @@ def magwell_login(cfg, device):
         response = http.request("GET", device_url, fields=params, timeout=urllib3.Timeout(connect=5, read=15))
         http.clear()
       
+        LOG.set('magwell_response_status', response.status)
+        LOG.set('magwell_response_payload', response.data.decode('utf-8'))
+       
         sid = None
         if response.status == 200:
             sid = None
@@ -37,17 +43,21 @@ def magwell_login(cfg, device):
                 if header.lower() == 'set-cookie':
                     sid = value.split(';')[0].split('=')[1]
 
+            LOG.set('magwell_sid', sid)
             print(f'\tsetting sid: {sid} on {device_id}')
             device['status'] = 'online'
             device['sid'] = sid
             cfg['localDevices'][device_id] = device
+            LOG.set('magwell_device_status', 'online')
             return True
         else:
             print(f'\t**Error: Login Status code: {response.status}')
 
     except Exception as e:
+        LOG.set('magwell_response_exception', str(e))
         print(f'[{device_id}]: connect failed - {e}')
 
+    LOG.set('magwell_device_status', 'offline')
     print('\tSetting device to offline')
     device['status'] = 'offline'
     return False
@@ -64,7 +74,6 @@ def send_magwell_command(cfg, device_id, params):
     sid = device.get('sid')
     ip = device.get('ipAddress')
     url = f'http://{ip}/mwapi'
-
 
     headers = {
         'Cookie': f'sid={sid}'
