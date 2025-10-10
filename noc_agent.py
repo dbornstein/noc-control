@@ -22,8 +22,20 @@ from pubnub.pubnub import PubNub, SubscribeListener
 commonPath = "{0}/libraries".format(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append( commonPath)
 
+
 from magwell import send_magwell_command, magwell_login
 from vlc import send_vlc_command, start_vlc_subprocess
+
+
+class InvalidDataError(Exception):
+    """Exception raised when invalid data is encountered."""
+    def __init__(self, message="Invalid data provided"):
+        super().__init__(message)
+
+class IgnoreMessageException(Exception):
+    """Exception raised when the incoming message should be ignored."""
+    def __init__(self, message="message not for this agent"):
+        super().__init__(message)
 
 
 # Configure PubNub
@@ -103,12 +115,15 @@ def agent_listen(cfg):
 def process_message(cfg, message):
 
     try:
+        LOG.reset()
+        LOG.set('success',True)
+        LOG.set('log_type', 'control_message')
+        LOG.set('message', message)
         print(f'Message Received:{message}')
 
         command =  message.get('command')
         if command not in ['refresh', 'stop', 'play', 'status','update']:
-            print(f'Error: Invalid Command:{command}')
-            return
+            raise InvalidDataError(f'Error: Invalid Command:{command}')
 
         ''' Appliance Based commands '''
         if command in ['refresh', 'update']:
@@ -116,37 +131,45 @@ def process_message(cfg, message):
             local_agent_id = cfg.get('agentId')
             if agent_id != local_agent_id:
                 print(f'{command} for {agent_id} not for this agent ({local_agent_id})')
-                return
+                raise IgnoreMessageException('NotForThisAgent')
+    
             if command == 'refresh':
                 print('refresh command received')
                 cfg = load_config(cfg)
                 setup_devices_for_location(cfg)
+                LOG.set('command_status', 'refresh complete')
                 print('refresh complete')
                 return
             if command == 'update':
+                LOG.set('command_status', 'update initiated')
                 execute_agent_update()
                 return
-
 
         device_id = message.get('deviceId')
         local_devices = cfg.get('localDevices')
         device = local_devices.get(device_id)
         device_type = device.get('deviceType')
 
+        LOG.set('device_id', device_id)
+        LOG.set('device_type', device_type)
+        LOG.set('device', device)
+        LOG.set('local_devices', local_devices)
+
         if not device:
             print(f'device [{device_id}] not registered in this location')
+            raise IgnoreMessageException('NotForThisAgent')
             return
 
         if command == 'stop':
             stream_name = device.get('streamName')
-            print('stopping stream: {stream_name}')
+            print(f'stopping stream: {stream_name}')
             if device_type == 'magwell':
 
                 params = {
                     "method": "clear-channels",
                     "name": stream_name
                 }
-                send_magwell_command(cfg, device_id, params)
+                res = send_magwell_command(cfg, device_id, params)
                 return
 
         elif command == 'status':
@@ -156,6 +179,7 @@ def process_message(cfg, message):
                     "method": "get-signal-info",
                 }
                 res = send_magwell_command(cfg, device_id, params)
+                LOG.set('magwell_response',res)
                 print(res)
                 return
 
@@ -171,8 +195,6 @@ def process_message(cfg, message):
 
             if device_type == 'magwell':
 
-                #http://d15w0nire27phg.cloudfront.net/NBCU-LATAM/enc_index.m3u8?mw-bitrate=4096&mw-buffer-duration=60
-                #http://d15w0nire27phg.cloudfront.net/NBCU-LATAM/enc_index.m3u8?mw-bitrate=4096&mw-buffer-duration=60
                 params = {
                     "method": "add-channel",
                     "name": stream_name,
@@ -205,10 +227,19 @@ def process_message(cfg, message):
 
                 send_vlc_command(cfg, stream_url)
             #update_device_status(cfg)
+    except IgnoreMessageException as e:
+        print('message not for this agent.')
+        # Don't send a log.
+        LOG.reset()
+        return
     except Exception as e:
         print(f'process_message exception: {e}')
         trace = traceback.format_exc()
+        LOG.set('EXCEPTION', str(e))
+        LOG.set('EXCEPTION_TRACE', trace)
         print(trace)
+    finally:
+        LOG.send()
 
 
 def setup_devices_for_location(cfg):

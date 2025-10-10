@@ -3,6 +3,9 @@ import urllib3
 import hashlib
 import json
 
+from msg_logger import MsgLogger, lOG
+
+
 
 def magwell_login(cfg, device):
 
