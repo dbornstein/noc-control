@@ -1,6 +1,7 @@
 
 import urllib3
 import hashlib
+import json
 
 
 def magwell_login(cfg, device):
