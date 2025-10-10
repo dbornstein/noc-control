@@ -313,20 +313,26 @@ def send_magwell_command(cfg, device_id, params):
     while count < 3:
         response = http.request("GET", url, fields=params, headers=headers)
         if response.status == 200:
-            print('200: ok')
-            break
-        if response.status == 37:
-            print('37: calling login')
-            magwell_login(cfg,device)
-            count += 1
-            continue
-        count += 1
-        print(response.data.decode('utf-8'))
-        print('++++++++++++++++++++++++++++++++++++++\n')
-    http.clear()
+            res = json.loads(response.data.decode('utf-8'))
+            status = res.get('status')
+            if status == 0:
+                # We are good.
+                break
+            elif status == 37:
+                print('Login expired(37): calling login')
+                magwell_login(cfg,device)
+                count += 1
+                continue
+            else:
+                print(f'Status not ok: {res}')
+                count +=1 
+        else:
+            r = response.data.decode('utf-8')
+            print(f'bad response[{response.status}]: {r}')
+            http.clear()
+            return False
     print(f'response: {response.data.decode('utf-8')}')
-
-    #return json.loads(response.data.decode('utf-8'))
+    return True
     
         
 
