@@ -148,17 +148,15 @@ def process_message(cfg, message):
         device_id = message.get('deviceId')
         local_devices = cfg.get('localDevices')
         device = local_devices.get(device_id)
-        device_type = device.get('deviceType')
+        if not device:
+            print(f'device [{device_id}] not registered in this location')
+            raise IgnoreMessageException('NotForThisAgent')
 
+        device_type = device.get('deviceType')
         LOG.set('device_id', device_id)
         LOG.set('device_type', device_type)
         LOG.set('device', device)
         LOG.set('local_devices', local_devices)
-
-        if not device:
-            print(f'device [{device_id}] not registered in this location')
-            raise IgnoreMessageException('NotForThisAgent')
-            return
 
         if command == 'stop':
             stream_name = device.get('streamName')
@@ -448,3 +446,45 @@ if __name__ == '__main__':
 # 
 # if __name__ == "__main__":
 #     main()
+
+# ============================================================================
+# ============================================================================
+# ============================================================================
+# pip install iam-rolesanywhere-session boto3
+# import os
+# from iam_rolesanywhere_session import IAMRolesAnywhereSession
+# 
+# TRUST_ANCHOR_ARN = os.getenv("RA_TRUST_ANCHOR_ARN")
+# PROFILE_ARN      = os.getenv("RA_PROFILE_ARN")
+# ROLE_ARN         = os.getenv("RA_ROLE_ARN")
+# REGION           = os.getenv("AWS_REGION", "us-east-1")
+# 
+# CERT_PATH        = os.getenv("RA_CERT_PATH", "./client.pem")       # leaf cert
+# KEY_PATH         = os.getenv("RA_KEY_PATH", "./client.key")        # matching private key
+# CHAIN_PATH       = os.getenv("RA_CHAIN_PATH")                      # optional: intermediates bundle (no leaf, no root)
+# DURATION_SECONDS = int(os.getenv("RA_DURATION", "3600"))           # 900..43200, subject to profile/role limits
+# SESSION_NAME     = os.getenv("RA_SESSION_NAME", "roleanywhere-python")
+
+kwargs = dict(
+    profile_arn=PROFILE_ARN,
+    role_arn=ROLE_ARN,
+    trust_anchor_arn=TRUST_ANCHOR_ARN,
+    certificate=CERT_PATH,
+    private_key=KEY_PATH,
+    region=REGION,
+    session_duration=DURATION_SECONDS,
+)
+
+# If you have intermediates, include them:
+if CHAIN_PATH:
+    kwargs["certificate_chain"] = CHAIN_PATH  # param supported by the library
+
+# Build a refreshable boto3 Session backed by Roles Anywhere:
+session = IAMRolesAnywhereSession(**kwargs).get_session()
+
+# # Example: verify identity and list S3 buckets
+# sts = session.client("sts")
+# print(sts.get_caller_identity())
+# 
+# s3 = session.client("s3")
+# print([b["Name"] for b in s3.list_buckets().get("Buckets", [])])
