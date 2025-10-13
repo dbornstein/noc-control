@@ -19,7 +19,7 @@ from pubnub.pubnub import PubNub, SubscribeListener
 
 
 # add includes to the path to access the local include directory
-commonPath = "{0}/libraries".format(os.path.dirname(os.path.abspath(__file__)))
+commonPath = "{0}/includes".format(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append( commonPath)
 
 
@@ -414,3 +414,33 @@ def execute_agent_update():
 if __name__ == '__main__':
 	main(sys.argv)
 	sys.exit()
+
+
+# # create_client_creds.py
+# # pip install boto3
+# import os, json, secrets, string, boto3
+# 
+# REGION = os.getenv("AWS_REGION", "us-east-1")
+# SECRET_ID = os.getenv("OAUTH_SECRET_ID", "thirdparty/oauth/client")
+# 
+# def rand_secret(n=48):
+#     alphabet = string.ascii_letters + string.digits + "-_"
+#     return "".join(secrets.choice(alphabet) for _ in range(n))
+# 
+# def main():
+#     client_id = secrets.token_urlsafe(24)   # e.g. CcX... (URL-safe)
+#     client_secret = rand_secret(64)         # strong shared secret
+# 
+#     sm = boto3.client("secretsmanager", region_name=REGION)
+#     payload = json.dumps({"client_id": client_id, "client_secret": client_secret})
+#     try:
+#         sm.create_secret(Name=SECRET_ID, SecretString=payload)
+#     except sm.exceptions.ResourceExistsException:
+#         sm.put_secret_value(SecretId=SECRET_ID, SecretString=payload)
+# 
+#     print("Created/updated secret:", SECRET_ID)
+#     print("client_id:", client_id)
+#     print("client_secret (DO NOT EMAIL/LOG IN CLEAR):", client_secret[:4] + "…")
+# 
+# if __name__ == "__main__":
+#     main()
