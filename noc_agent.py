@@ -2,12 +2,12 @@
 
 import os
 import sys
+
 import subprocess
 import time
 import json
 import time
 import os
-
 import optparse
 import traceback
 import urllib3
@@ -22,21 +22,24 @@ from pubnub.pubnub import PubNub, SubscribeListener
 commonPath = "{0}/includes".format(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append( commonPath)
 
-from msg_logger import MsgLogger
-from msg_logger import LOG 
-
 from magwell import send_magwell_command, magwell_login
 from vlc import send_vlc_command, start_vlc_subprocess
-
 from exceptions import *
-
 
 # Configure PubNub
 pnconfig = PNConfiguration()
 cfg = {}
 
+# setup Logger, then override it with Local Logger.
+from msg_logger import MsgLocalLogger
+from msg_logger import LOG
+details = {'a': 'b'}
+
+
+
 def main(argv):
     global cfg
+    global LOG
 
     with open("agent_version", "r") as f:
         version = f.read().strip()
@@ -58,7 +61,11 @@ def main(argv):
     parser.add_option_group(admin)
     (options, args) = parser.parse_args()
 
+
+
     cfg = load_config(cfg, options.config_file)
+
+    LOG = MsgLocalLogger(details)
 
     executeCommands(cfg, options)
     sys.exit()
@@ -402,6 +409,10 @@ def execute_agent_update():
         # No PubNub publish; rely on HA peer or manual check
     except FileNotFoundError:
         logger.error(f"update.sh not found at {script_path}")
+
+
+
+
 
 
 if __name__ == '__main__':

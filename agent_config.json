@@ -1,6 +1,6 @@
 {
-    "agentId": "",
-    "configId": "",
+    "agentId": "noc-agent-davehome-1",
+    "configId": "noc1",
     "apiKey": "62263d37436457295f5e2f7b",
     "apiEndpoint": "https://7t0xe8mj02.execute-api.us-east-1.amazonaws.com"
 }

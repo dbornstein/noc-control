@@ -1,11 +1,11 @@
 import logging
 import json
 import sys
+from traceback import extract_stack
 
+from pubnub.utils import extend_list
 
 # Global VARIABLES (Set at bottom)
-#LOG = MsgLogger()
-
 
 class MsgLogger:
     def __init__(self):
@@ -101,7 +101,24 @@ class MsgLogger:
                     del self._logs[key]
 
         if  suppressLocal and self._event.get('configData',{}).get('local'):
-            return
-        print(json.dumps(self._logs,default=str))
+            return  
+
+        msg = json.dumps(self._logs,default=str)
+        self.send_message(msg)
+
+    def send_message(self,msg):
+        print(msg)
+
+
+class MsgLocalLogger(MsgLogger):
+    def __init__(self, extra_param=None): 
+        super().__init__() 
+        self.extra_param = extra_param  # Handle the new param
+
+    def send_message(self, msg):
+        print(f'[{msg}]')
+        print(self.extra_param)
+        print('--------------')
+
 
 LOG = MsgLogger()
