@@ -28,7 +28,7 @@ from msg_logger import LOG
 from magwell import send_magwell_command, magwell_login
 from vlc import send_vlc_command, start_vlc_subprocess
 
-from exceptions include *
+from exceptions import *
 
 
 # Configure PubNub
