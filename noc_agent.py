@@ -14,28 +14,21 @@ import urllib3
 from urllib3.util.retry import Retry
 from urllib.parse import parse_qs, quote, urlencode
 from datetime import datetime
+
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub, SubscribeListener
-
 
 # add includes to the path to access the local include directory
 commonPath = "{0}/includes".format(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append( commonPath)
 
+from msg_logger import MsgLogger
+from msg_logger import LOG 
 
 from magwell import send_magwell_command, magwell_login
 from vlc import send_vlc_command, start_vlc_subprocess
 
-
-class InvalidDataError(Exception):
-    """Exception raised when invalid data is encountered."""
-    def __init__(self, message="Invalid data provided"):
-        super().__init__(message)
-
-class IgnoreMessageException(Exception):
-    """Exception raised when the incoming message should be ignored."""
-    def __init__(self, message="message not for this agent"):
-        super().__init__(message)
+from exceptions include *
 
 
 # Configure PubNub
