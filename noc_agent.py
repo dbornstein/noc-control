@@ -91,7 +91,8 @@ process message
 '''
 def agent_listen(cfg):
 
-    agent_id = cfg.get('agentConfig').get('agentId')
+    #agent_id = cfg.get('agentConfig').get('agentId')
+    agent_id = cfg.get('agentId')
 
     pn_cfg = cfg.get('pubnubConfig')
     pnconfig.subscribe_key = pn_cfg .get('subscribeKey')
