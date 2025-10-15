@@ -63,14 +63,11 @@ def main(argv):
     parser.add_option_group(admin)
     (options, args) = parser.parse_args()
 
-    executeCommands(cfg, options)
-
     cfg = load_config(cfg, options.config_file)
     LOG = MsgLocalLogger(cfg)
 
-    agent_listen(cfg)
+    executeCommands(cfg, options)
     sys.exit()
-
 
 
 def executeCommands(cfg, options):
