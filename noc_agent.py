@@ -63,11 +63,12 @@ def main(argv):
     parser.add_option_group(admin)
     (options, args) = parser.parse_args()
 
-    cfg = load_config(cfg, options.config_file)
+    executeCommands(cfg, options)
 
+    cfg = load_config(cfg, options.config_file)
     LOG = MsgLocalLogger(cfg)
 
-    executeCommands(cfg, options)
+    agent_listen(cfg)
     sys.exit()
 
 
@@ -76,6 +77,7 @@ def executeCommands(cfg, options):
 
     if options.byte_encode:
         byte_encode(cfg, options.byte_encode)
+        sys.exit()
 
     if options.agent:
         agent_listen(cfg)
@@ -301,14 +303,16 @@ def update_device_status(cfg):
 
 def load_config(cfg, agent_cfg_file=None):
 
+
     local_cfg = cfg.get('localConfig',{})
     if not local_cfg:
+        print(f'reading Local config: {agent_cfg_file}')
         # Open and load the JSON data
         with open(agent_cfg_file, 'r') as file:
             local_cfg = json.load(file)
 
-        if cfg.get('agentId') == 'noc-agent-xxx':
-            print(f'ERROR: agentId must be set in {agent_cfg_file}')
+        if not local_cfg.get('agentId'):
+            print(f'ERROR: agentId must be set in [{agent_cfg_file}]')
             sys.exit()
 
     api_endpoint = local_cfg.get('apiEndpoint')
