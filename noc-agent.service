@@ -8,10 +8,12 @@ Type=simple
 User=noc-agent
 Group=noc-agent
 WorkingDirectory=/opt/noc-agent
-Environment=PATH=/opt/noc-agent/venv/bin
+Environment="PATH=/opt/noc-agent/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/opt/noc-agent/venv/bin/python -m noc_agent.main --config /opt/noc-agent/config.yaml
 Restart=always  # This covers point 3 too!
 RestartSec=10
+# Give the process up to 10 seconds to clean up after SIGTERM
+TimeoutStopSec=10s
 StandardOutput=journal
 StandardError=journal
 

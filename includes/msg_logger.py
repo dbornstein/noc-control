@@ -1,9 +1,16 @@
 import logging
 import json
 import sys
+import time, datetime
 from traceback import extract_stack
 
 from pubnub.utils import extend_list
+import boto3
+from botocore.exceptions import ClientError
+
+from  iam_role_anywhere import IamAnywhere
+import base64
+
 
 # Global VARIABLES (Set at bottom)
 
@@ -31,7 +38,6 @@ class MsgLogger:
         self._skip_on_success = False
         self._db_log_count = 0
 
-
     def set(self, key, value):
         '''Stores a log entry with the specified key and value.'''
         self._logs[key] = value
@@ -57,7 +63,6 @@ class MsgLogger:
             db_ex_trace = value.get('DB_EXCEPTION_TRACEBACK')
             self.set('DB_EXCEPTION', db_ex)
             self.set('DB_EXCEPTION_TRACEBACK', db_ex_trace)
-
 
 
     def get(self, key):
@@ -109,16 +114,124 @@ class MsgLogger:
     def send_message(self,msg):
         print(msg)
 
-
+'''
+Child Class of MsgLogger that establishes an IAM Role Anywhere session and Logs to cloudwatch
+Used when the service is not running in a lambda function but still wants to log messages to CW.
+'''
 class MsgLocalLogger(MsgLogger):
-    def __init__(self, extra_param=None): 
-        super().__init__() 
-        self.extra_param = extra_param  # Handle the new param
+    def __init__(self,cfg={}): 
+        super().__init__()  
+        self._cfg = cfg
+        alCfg = self._cfg.get('localLogging')
+        self._region = self._cfg.get('region')
+        self._cw_group = alCfg.get('cwGroupName')
 
-    def send_message(self, msg):
-        print(f'[{msg}]')
-        print(self.extra_param)
-        print('--------------')
+        # update the stream name by filling in the macros from cfg.
+        self._cw_stream = alCfg.get('cwStreamName').format(**self._cfg)
+        self._cw_logger = CloudWatchLogger(self._cfg, self._cw_group,self._cw_stream, self._region)
+
+    def send_message(self, message):
+        print('MsgLocalLogger:send_message')
+        self._cw_logger.log(message)
+
+
+'''
+Class to log to Cloudwatch.  Handles creating the group, streams, and ordertokens
+'''
+class CloudWatchLogger:
+    def __init__(self, cfg, log_group, stream_prefix, region):
+        self._cfg = cfg
+        self.log_group = log_group
+        self.stream_prefix = stream_prefix
+        self._current_stream = None
+        self._seq_token = None
+        self._current_date = None  # YYYY-MM-DD string
+
+        self._iam = IamAnywhere(self._cfg, ['logs']) 
+        
+        # run this once on initialization
+        self._ensure_log_group()
+
+    def _today_stream_name(self):
+        today = datetime.date.today().isoformat()  # YYYY-MM-DD
+        return f"{self.stream_prefix}-{today}", today
+
+    def _ensure_log_group(self):
+
+        (_, clients) = self._iam.get_session_and_clients()
+        client = clients.get('logs')
+
+        try:
+            client.create_log_group(logGroupName=self.log_group)
+        except client.exceptions.ResourceAlreadyExistsException:
+            pass
+
+    def _ensure_stream_and_token(self, client):
+        stream, day = self._today_stream_name()
+        # Rotate if date changed
+        if day != self._current_date:
+            self._current_stream = None
+            self._seq_token = None
+            self._current_date = day
+
+        if self._current_stream is None:
+            # Ensure stream exists
+            try:
+                client.create_log_stream(
+                    logGroupName=self.log_group, logStreamName=stream
+                )
+                self._seq_token = None
+            except client.exceptions.ResourceAlreadyExistsException:
+                # Get current token if stream already exists
+                desc = client.describe_log_streams(
+                    logGroupName=self.log_group, logStreamNamePrefix=stream, limit=1
+                )
+                streams = desc.get("logStreams", [])
+                if streams:
+                    self._seq_token = streams[0].get("uploadSequenceToken")
+            self._current_stream = stream
+
+
+    def log(self, message):
+
+        (_, clients) = self._iam.get_session_and_clients()
+        client = clients.get('logs')
+
+        print('CloudWatchLogger: LOG')
+        self._ensure_stream_and_token(client)
+        ts_ms = int(time.time() * 1000)
+        args = {
+            "logGroupName": self.log_group,
+            "logStreamName": self._current_stream,
+            "logEvents": [{"timestamp": ts_ms, "message": message}],
+        }
+        if self._seq_token:
+            args["sequenceToken"] = self._seq_token
+
+        try:
+            resp = client.put_log_events(**args)
+            print(f'Log sent to cloudwatch: {self.log_group}')
+            self._seq_token = resp.get("nextSequenceToken")
+        except InvalidSequenceTokenException:
+            # Refresh token and retry once
+            desc = client.describe_log_streams(
+                logGroupName=self.log_group,
+                logStreamNamePrefix=self._current_stream,
+                limit=1,
+            )
+            streams = desc.get("logStreams", [])
+            self._seq_token = streams[0].get("uploadSequenceToken") if streams else None
+            if self._seq_token:
+                args["sequenceToken"] = self._seq_token
+            else:
+                args.pop("sequenceToken", None)
+
+            print(f'Log sent to cloudwatch: {self.log_group}')
+            resp = client.put_log_events(**args)
+            self._seq_token = resp.get("nextSequenceToken")
+        except ClientError as e:
+            # You may want to surface/handle throttling, invalid param sizes, etc.
+            raise RuntimeError(f"CloudWatch put_log_events failed: {e}") from e
 
 
 LOG = MsgLogger()

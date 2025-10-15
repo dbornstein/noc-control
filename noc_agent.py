@@ -56,16 +56,16 @@ def main(argv):
     admin.add_option("--config-file", action="store", dest="config_file",default='agent_config.json',
     				 help="agent config-file (def=agent_config.cfg)")
 
+    admin.add_option("--byte-encode-file", action="store", dest="byte_encode",default='',
+    				 help="byte encode secret file")
 
 
     parser.add_option_group(admin)
     (options, args) = parser.parse_args()
 
-
-
     cfg = load_config(cfg, options.config_file)
 
-    LOG = MsgLocalLogger(details)
+    LOG = MsgLocalLogger(cfg)
 
     executeCommands(cfg, options)
     sys.exit()
@@ -73,6 +73,10 @@ def main(argv):
 
 
 def executeCommands(cfg, options):
+
+    if options.byte_encode:
+        byte_encode(cfg, options.byte_encode)
+
     if options.agent:
         agent_listen(cfg)
         sys.exit()
@@ -140,6 +144,7 @@ def process_message(cfg, message):
                 LOG.set('command_status', 'refresh complete')
                 print('refresh complete')
                 return
+
             if command == 'update':
                 LOG.set('command_status', 'update initiated')
                 execute_agent_update()
@@ -237,6 +242,7 @@ def process_message(cfg, message):
         LOG.set('EXCEPTION_TRACE', trace)
         print(trace)
     finally:
+        print('sending log message')
         LOG.send()
 
 
@@ -409,7 +415,16 @@ def execute_agent_update():
         logger.error(f"update.sh not found at {script_path}")
 
 
+def byte_encode(cfg, filename):
 
+    
+    with open(filename, "r", encoding="utf-8") as f:
+        contents = f.read()
+
+    bytes = contents.encode('utf-8')
+    print
+    print(bytes)
+    print
 
 
 
@@ -465,26 +480,78 @@ if __name__ == '__main__':
 # DURATION_SECONDS = int(os.getenv("RA_DURATION", "3600"))           # 900..43200, subject to profile/role limits
 # SESSION_NAME     = os.getenv("RA_SESSION_NAME", "roleanywhere-python")
 
-kwargs = dict(
-    profile_arn=PROFILE_ARN,
-    role_arn=ROLE_ARN,
-    trust_anchor_arn=TRUST_ANCHOR_ARN,
-    certificate=CERT_PATH,
-    private_key=KEY_PATH,
-    region=REGION,
-    session_duration=DURATION_SECONDS,
-)
-
-# If you have intermediates, include them:
-if CHAIN_PATH:
-    kwargs["certificate_chain"] = CHAIN_PATH  # param supported by the library
-
-# Build a refreshable boto3 Session backed by Roles Anywhere:
-session = IAMRolesAnywhereSession(**kwargs).get_session()
-
-# # Example: verify identity and list S3 buckets
-# sts = session.client("sts")
-# print(sts.get_caller_identity())
+# kwargs = dict(
+#     profile_arn=PROFILE_ARN,
+#     role_arn=ROLE_ARN,
+#     trust_anchor_arn=TRUST_ANCHOR_ARN,
+#     certificate=CERT_PATH,
+#     private_key=KEY_PATH,
+#     region=REGION,
+#     session_duration=DURATION_SECONDS,
+# )
 # 
-# s3 = session.client("s3")
-# print([b["Name"] for b in s3.list_buckets().get("Buckets", [])])
+# # If you have intermediates, include them:
+# if CHAIN_PATH:
+#     kwargs["certificate_chain"] = CHAIN_PATH  # param supported by the library
+# 
+# # Build a refreshable boto3 Session backed by Roles Anywhere:
+# session = IAMRolesAnywhereSession(**kwargs).get_session()
+# 
+# # # Example: verify identity and list S3 buckets
+# # sts = session.client("sts")
+# # print(sts.get_caller_identity())
+# # 
+# # s3 = session.client("s3")
+# # print([b["Name"] for b in s3.list_buckets().get("Buckets", [])])
+# 
+# ==============================================
+# ==============================================
+# ==============================================
+# 
+# import boto3
+# 
+# logs = boto3.client('logs', region_name='us-east-1')
+# 
+# log_group = '/my/app/logs'
+# log_stream = 'python-function-stream'
+# 
+# # Ensure log group exists
+# try:
+#     logs.create_log_group(logGroupName=log_group)
+# except logs.exceptions.ResourceAlreadyExistsException:
+#     pass
+# 
+# # Ensure log stream exists
+# try:
+#     logs.create_log_stream(logGroupName=log_group, logStreamName=log_stream)
+# except logs.exceptions.ResourceAlreadyExistsException:
+#     pass
+# 
+# ==============================================
+# ==============================================
+# ==============================================
+# import time
+# 
+# # Get the current timestamp in milliseconds
+# timestamp = int(round(time.time() * 1000))
+# 
+# # Retrieve the next sequence token
+# response = logs.describe_log_streams(
+#     logGroupName=log_group,
+#     logStreamNamePrefix=log_stream
+# )
+# sequence_token = response['logStreams'][0].get('uploadSequenceToken')
+# 
+# # Send the log
+# log_event = {
+#     'logGroupName': log_group,
+#     'logStreamName': log_stream,
+#     'logEvents': [
+#         {'timestamp': timestamp, 'message': 'Hello from boto3!'}
+#     ]
+# }
+# 
+# if sequence_token:
+#     log_event['sequenceToken'] = sequence_token
+# 
+# logs.put_log_events(**log_event)
