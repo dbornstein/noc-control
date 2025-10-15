@@ -154,7 +154,7 @@ class CloudWatchLogger:
 
     def _today_stream_name(self):
         today = datetime.date.today().isoformat()  # YYYY-MM-DD
-        return f"{self.stream_prefix}-{today}", today
+        return f"[{today}]-{self.stream_prefix}", today
 
     def _ensure_log_group(self):
 
