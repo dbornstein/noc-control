@@ -245,6 +245,7 @@ def process_message(cfg, message):
         LOG.set('EXCEPTION_TRACE', trace)
         print(trace)
     finally:
+        print(send_log)
         if send_log:
             print('sending log message')
             LOG.send()
