@@ -107,7 +107,7 @@ def send_magwell_command(cfg, device_id, params):
             print(f'bad response[{response.status}]: {r}')
             http.clear()
             return False
-    print(f'response: {response.data.decode('utf-8')}')
+    print(f'response: {response.data.decode("utf-8")}')
     return True
     
       
