@@ -119,6 +119,7 @@ def agent_listen(cfg):
 def process_message(cfg, message):
 
     try:
+        send_log = True
         LOG.reset()
         LOG.set('success',True)
         LOG.set('log_type', 'control_message')
@@ -234,6 +235,7 @@ def process_message(cfg, message):
         print('message not for this agent.')
         # Don't send a log.
         LOG.reset()
+        send_log = False
         return
     except Exception as e:
         print(f'process_message exception: {e}')
@@ -243,8 +245,9 @@ def process_message(cfg, message):
         LOG.set('EXCEPTION_TRACE', trace)
         print(trace)
     finally:
-        print('sending log message')
-        LOG.send()
+        if send_log:
+            print('sending log message')
+            LOG.send()
 
 
 def setup_devices_for_location(cfg):
