@@ -161,7 +161,7 @@ def process_message(cfg, message):
         LOG.set('device_id', device_id)
         LOG.set('device_type', device_type)
         LOG.set('device', device)
-        LOG.set('local_devices', local_devices)
+        #LOG.set('local_devices', local_devices)
 
         if command == 'stop':
             stream_name = device.get('streamName')
@@ -237,6 +237,7 @@ def process_message(cfg, message):
         return
     except Exception as e:
         print(f'process_message exception: {e}')
+        LOG.set('success',False)
         trace = traceback.format_exc()
         LOG.set('EXCEPTION', str(e))
         LOG.set('EXCEPTION_TRACE', trace)
