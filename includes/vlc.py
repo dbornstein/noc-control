@@ -64,6 +64,7 @@ def start_vlc_subprocess(cfg):
     env = os.environ.copy()
     env.setdefault("DISPLAY", ":0")
     env.setdefault("XAUTHORITY", f"/home/{desktop_user}/.Xauthority")
+    env["VLC_SKIP_FIRST_RUN"] = "1" 
 
     print(env)
 
