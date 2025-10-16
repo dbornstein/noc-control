@@ -54,11 +54,16 @@ def start_vlc_subprocess(cfg):
         '--http-password', f'{vlc_password}',
         '--no-playlist-autostart',
         '--no-video-title-show',
-        '--intf', 'dummy',
-        '--loop', '-vvv'
+        '--loop', '-vv'
 
     ]
     print(f'vlc Command: {vlc_cmd}')
+
+    desktop_user = 'nocadmin'
+    env = os.environ.copy()
+    env.setdefault("DISPLAY", ":0")
+    env.setdefault("XAUTHORITY", f"/home/{desktop_user}/.Xauthority")
+
 
     # Use subprocess.Popen to fork and exec
     process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
