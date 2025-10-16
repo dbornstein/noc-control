@@ -65,6 +65,8 @@ def start_vlc_subprocess(cfg):
     env.setdefault("DISPLAY", ":0")
     env.setdefault("XAUTHORITY", f"/home/{desktop_user}/.Xauthority")
 
+    print(env)
+
 
     # Use subprocess.Popen to fork and exec
     process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
