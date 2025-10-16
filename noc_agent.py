@@ -315,7 +315,7 @@ def load_config(cfg, agent_cfg_file=None):
                 local_cfg = json.load(file)
         except FileNotFoundError:
             print(f'{agent_cfg_file} not found.  Copy from agent_config_template.json and set agentId')
-
+            sys.exit()
         if not local_cfg.get('agentId'):
             print(f'ERROR: agentId must be set in [{agent_cfg_file}]')
             sys.exit()
