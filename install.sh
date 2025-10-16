@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Starting NOC Agent installation (idempotent mode)..."
 
-# Create system user if it doesn't exist (idempotent)
+# Create system user if it doesn't exist
 if ! id -u noc-agent &>/dev/null; then
     echo "Creating system user 'noc-agent'..."
     sudo adduser --system --group --no-create-home noc-agent
@@ -12,7 +12,7 @@ else
     echo "System user 'noc-agent' already exists."
 fi
 
-# Create installation directory (idempotent)
+# Create installation directory 
 INSTALL_DIR="/opt/noc-agent"
 sudo mkdir -p "$INSTALL_DIR"
 sudo chown noc-agent:noc-agent "$INSTALL_DIR"
@@ -22,17 +22,17 @@ INSTALL_SRC="$INSTALL_DIR/src"
 sudo mkdir -p "$INSTALL_SRC"
 sudo chown noc-agent:noc-agent "$INSTALL_SRC"
 
-# Clone or update the repository (idempotent, persistent source)
+# Clone or update the repository (persistent source)
 cd "$INSTALL_SRC"
 if [ -d ".git" ]; then
     echo "Repository already cloned, updating to latest..."
-    sudo -u noc-agent git pull origin main  # Assumes main branch; adjust if needed
+    sudo -u noc-agent git pull origin main  
 else
     echo "Cloning repository from https://github.com/dbornstein/noc-control.git..."
     sudo -u noc-agent git clone https://github.com/dbornstein/noc-control.git .
 fi
 
-# Create virtual environment (idempotent: recreate only if missing or corrupted)
+# Create virtual environment (recreate only if missing or corrupted)
 VENV_DIR="$INSTALL_DIR/venv"
 if [ ! -d "$VENV_DIR" ] || [ ! -f "$VENV_DIR/bin/python" ]; then
     echo "Creating/Recreating Python virtual environment in $VENV_DIR..."
@@ -42,7 +42,7 @@ else
     echo "Virtual environment already exists and is valid."
 fi
 
-# Install/Upgrade the package editable into the venv (idempotent: always reinstall for updates)
+# Install/Upgrade the package editable into the venv (always reinstall for updates)
 # Set HOME to INSTALL_DIR to avoid /nonexistent cache issues for system user
 echo "Installing/Updating noc-agent package..."
 sudo -u noc-agent bash -c "
@@ -53,10 +53,11 @@ sudo -u noc-agent bash -c "
     pip install -e . --upgrade  # --upgrade ensures latest deps and code
 "
 
-# Copy configuration file (idempotent)
+# Copy configuration file
 CONFIG_PATH="$INSTALL_DIR/agent_config.json"
-echo "Copying agent configuration to $CONFIG_PATH..."
-sudo cp "$INSTALL_SRC/agent_config.json" "$CONFIG_PATH"
+TEMPLATE_PATH="$INSTALL_DIR/agent_config_template.json"
+echo "Copying agent configuration template to $CONFIG_PATH..."
+sudo cp "$TEMPLATE_PATH" "$CONFIG_PATH"
 sudo chown noc-agent:noc-agent "$CONFIG_PATH"  # Ensure ownership
 
 # Prompt for agentId and configId early if empty (before service setup)
@@ -78,8 +79,8 @@ except Exception as e:
 
 if [ "$NEEDS_PROMPT" = "PROMPT" ]; then
     echo "Prompting for missing/empty agentId and/or configId..."
-    read -p "Enter agentId (e.g., noc-agent-usnj01): " AGENT_ID
-    read -p "Enter configId (e.g., noc-config-001): " CONFIG_ID
+    read -p "Enter agentId: " AGENT_ID
+    read -p "Enter configId: " CONFIG_ID
 
     # Update JSON using Python (robust: handle missing keys)
     sudo python3 -c "
@@ -104,15 +105,8 @@ else
     echo "agentId and configId are already set in $CONFIG_PATH."
 fi
 
-# Now validate other config aspects post-prompt
-if ! grep -q '"pubnubConfig"' "$CONFIG_PATH" 2>/dev/null || ! grep -q '"subscribeKey"' "$CONFIG_PATH" 2>/dev/null; then
-    echo "WARNING: PubNub config (subscribeKey, etc.) missing in $CONFIG_PATH or downloaded agent config. Needed for AWS IoT command relay."
-fi
-if ! grep -q '"apiEndpoint":' "$CONFIG_PATH" 2>/dev/null || grep -q '"apiEndpoint": *""' "$CONFIG_PATH" 2>/dev/null; then
-    echo "WARNING: apiEndpoint missing or empty in $CONFIG_PATH. Required for downloading config from AWS (MongoDB/TAG integration)."
-fi
 
-# Copy/Update systemd service (idempotent: overwrite for latest version)
+# Copy/Update systemd service (overwrite for latest version)
 SERVICE_FILE="/etc/systemd/system/noc-agent.service"
 echo "Setting up/Updating systemd service..."
 sudo cp "$INSTALL_SRC/noc-agent.service" "$SERVICE_FILE"
@@ -148,7 +142,7 @@ sudo bash -c "
     sed -i 's|^Restart=.*|Restart=always|g' '$SERVICE_FILE'
 "
 
-# Copy update.sh to /opt/noc-agent and set permissions (idempotent)
+# Copy update.sh to /opt/noc-agent and set permissions 
 UPDATE_SCRIPT="$INSTALL_DIR/update.sh"
 if [ ! -f "$UPDATE_SCRIPT" ] || [ "$INSTALL_SRC/update.sh" -nt "$UPDATE_SCRIPT" ]; then  # Copy if missing or source newer
     echo "Copying update.sh to $UPDATE_SCRIPT..."
@@ -160,7 +154,7 @@ else
     echo "update.sh already up to date in $UPDATE_SCRIPT."
 fi
 
-# Reload systemd, enable (idempotent), and manage service
+# Reload systemd, enable and manage service
 echo "Configuring systemd service..."
 sudo systemctl daemon-reload
 if ! sudo systemctl is-enabled --quiet noc-agent; then
@@ -169,18 +163,14 @@ if ! sudo systemctl is-enabled --quiet noc-agent; then
 fi
 
 # Now check if config is still incomplete (post-prompt, only apiEndpoint/PubNub matter for start)
-if ! grep -q '"apiEndpoint":' "$CONFIG_PATH" 2>/dev/null || grep -q '"apiEndpoint": *""' "$CONFIG_PATH" 2>/dev/null; then
-    echo "apiEndpoint incomplete; stopping service to avoid crashes."
-    sudo systemctl stop noc-agent || true
+if sudo systemctl is-active --quiet noc-agent; then
+    echo "Service is running; restarting to apply updates..."
+    sudo systemctl restart noc-agent
 else
-    if sudo systemctl is-active --quiet noc-agent; then
-        echo "Service is running; restarting to apply updates..."
-        sudo systemctl restart noc-agent
-    else
-        echo "Service not running; starting now..."
-        sudo systemctl start noc-agent
-    fi
+    echo "Service not running; starting now..."
+    sudo systemctl start noc-agent
 fi
+
 
 # Verify service status
 echo "Checking service status..."
@@ -188,6 +178,6 @@ sudo systemctl status noc-agent --no-pager -l
 
 echo "Installation/Update complete! Source code is persistent in $INSTALL_SRC for future git pulls."
 echo "The NOC Agent service is configured for auto-start and restart on failure (via systemd)."
-echo "To view logs (for debugging API downloads or device logins): sudo journalctl -u noc-agent -f"
+echo
+echo "To view logs: sudo journalctl -u noc-agent -f"
 echo "To stop/restart: sudo systemctl stop|restart noc-agent"
-echo "For code updates: sudo $UPDATE_SCRIPT"
