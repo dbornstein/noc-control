@@ -60,5 +60,10 @@ def start_vlc_subprocess(cfg):
     # Use subprocess.Popen to fork and exec
     process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(vlc_delay)
+    retcode = process.poll() 
+    if not retcode:
+        print('process is running')
+    else:
+        print(f'VLC process exited with status: {retcode}')
     return process
 
