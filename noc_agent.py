@@ -310,8 +310,11 @@ def load_config(cfg, agent_cfg_file=None):
     if not local_cfg:
         print(f'reading Local config: {agent_cfg_file}')
         # Open and load the JSON data
-        with open(agent_cfg_file, 'r') as file:
-            local_cfg = json.load(file)
+        try:
+            with open(agent_cfg_file, 'r') as file:
+                local_cfg = json.load(file)
+        except FileNotFoundError:
+            print(f'{agent_cfg_file} not found.  Copy from agent_config_template.json and set agentId')
 
         if not local_cfg.get('agentId'):
             print(f'ERROR: agentId must be set in [{agent_cfg_file}]')
