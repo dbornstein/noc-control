@@ -54,7 +54,9 @@ def start_vlc_subprocess(cfg):
         '--http-password', f'{vlc_password}',
         '--no-playlist-autostart',
         '--no-video-title-show',
-        '--idle'
+        '--intf', 'dummy',
+        '--loop', '-vvv'
+
     ]
     print(f'vlc Command: {vlc_cmd}')
 
