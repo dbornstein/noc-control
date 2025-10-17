@@ -53,24 +53,21 @@ def start_vlc_subprocess(cfg):
         '--http-port', f'{vlc_port}',
         '--http-password', f'{vlc_password}',
         '--no-playlist-autostart',
-        '--no-video-title-show',
-        '--intf', 'qt',
-        '--loop', '-vv'
+        '--no-video-title-show'
 
     ]
     print(f'vlc Command: {vlc_cmd}')
 
-    desktop_user = 'nocadmin'
-    env = os.environ.copy()
-    env.setdefault("DISPLAY", ":0")
-    env.setdefault("XAUTHORITY", f"/home/{desktop_user}/.Xauthority")
-    env["VLC_SKIP_FIRST_RUN"] = "1" 
-
-    print(env)
+#     desktop_user = 'nocadmin'
+#     env = os.environ.copy()
+#     env.setdefault("DISPLAY", ":0")
+#     env.setdefault("XAUTHORITY", f"/home/{desktop_user}/.Xauthority")
+# 
+#     print(env)
 
 
     # Use subprocess.Popen to fork and exec
-    process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    process = subprocess.Popen(vlc_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) # text=True, env=env)
     print(f'process started with pid: {process.pid}')
     time.sleep(vlc_delay)
     retcode = process.poll()          # None => still running; int => finished
