@@ -10,8 +10,8 @@ class IamAnywhere():
         self._session = None 
         self._expire_time = 0
         self._region = cfg.get('region')
-        self._certificate = cfg.get('certificate').encode('utf-8')
-        self._private_key = cfg.get('privateKey').encode('utf-8')
+        self._certificate = cfg.get('iamCertificate').encode('utf-8')
+        self._private_key = cfg.get('iamPrivateKey').encode('utf-8')
 
         lc = self._cfg.get('iamAnywhere')
         self._session_duration = lc.get('sessionDurationSecs')
