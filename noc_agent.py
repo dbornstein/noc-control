@@ -271,15 +271,6 @@ def setup_devices_for_location(cfg):
     #update_device_status(cfg)
 
 
-# Usage post-PubNub receipt (e.g., {"action": "switch", "tvc": "NJMCR_M1", "ndi_url": "ndi://tag-stream-from-mongo"}):
-# response = magwell_http('http://10.11.4.11/mwapi', {'method': 'login', ...}, tvc_id='NJMCR_M1')
-# if response.status_code == 200 and response.json().get('status') == 0:
-#     sid = response.cookies.get('sid')
-#     # Mongo update: db.tvc_sessions.update_one({'ip': '10.11.4.11'}, {'$set': {'sid': sid}})
-#     # Follow-up: set-channel with NDI URL via session
-
-  
-
 def update_device_status(cfg):
     print('sending updated status')
     vals = {}
