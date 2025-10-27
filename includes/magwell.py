@@ -69,8 +69,10 @@ def send_magwell_command(cfg, device_id, params):
 
     print('--------- Sending Magwell Command+++++++++')
     print(params)
+    # print(device_id)
+    # print(json.dumps(cfg,indent=4))
     print(f'sending command to: {device_id}')
-    device = cfg.get('localDevices',{}).get(device_id)
+    device = cfg.get('serveDevices',{}).get(device_id)
     sid = device.get('sid')
     ip = device.get('ipAddress')
     url = f'http://{ip}/mwapi'
