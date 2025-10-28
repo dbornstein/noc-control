@@ -60,7 +60,7 @@ def main(argv):
     admin.add_option("--config-file", action="store", dest="config_file",default='agent_config.json',
     				 help="agent config-file (def=agent_config.cfg)")
 
-    admin.add_option("--run-agent", action="store_true", dest="run_agent",default=True,
+    admin.add_option("--agent", action="store_true", dest="run_agent",default=True,
     				 help="Run as event agent")
 
     parser.add_option_group(admin)
