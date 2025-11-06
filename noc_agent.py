@@ -336,6 +336,7 @@ def load_config(cfg, agent_id=None, config_id=None, agent_cfg_file=None):
     cfg = download_json(cfg_url, headers)
     cfg['localConfig'] = local_cfg
     cfg = cfg | cfg.get('agentConfig')
+    cfg['localDevices'] = {}
 
     return cfg
 
