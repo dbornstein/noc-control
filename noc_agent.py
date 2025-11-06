@@ -101,7 +101,7 @@ def agent_listen(cfg):
     pubnub = PubNub(pnconfig)
 
     setup_devices_for_location(cfg)
-    print(json.dumps(cfg.get('localDevices',indent=4)))
+    print(json.dumps(cfg.get('localDevices'),indent=4))
 
     status_listener = StatusListener()
     pubnub.add_listener(status_listener)
