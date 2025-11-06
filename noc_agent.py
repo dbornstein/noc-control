@@ -205,6 +205,12 @@ def process_message(cfg, message):
                 print('-----------------')
 
                 params = {
+                    "method": "del-channel",
+                    "name": stream_name
+                }
+                send_magwell_command(cfg, device_id, params)
+
+                params = {
                     "method": "add-channel",
                     "name": stream_name,
                     "url": stream_url,
