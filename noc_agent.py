@@ -90,7 +90,7 @@ process message
 '''
 def agent_listen(cfg):
 
-    #agent_id = cfg.get('agentConfig').get('agentId')
+
     agent_id = cfg.get('agentId')
 
     pn_cfg = cfg.get('pubnubConfig')
@@ -101,6 +101,7 @@ def agent_listen(cfg):
     pubnub = PubNub(pnconfig)
 
     setup_devices_for_location(cfg)
+    print(json.dumps(cfg.get('localDevices',indent=4)))
 
     status_listener = StatusListener()
     pubnub.add_listener(status_listener)
