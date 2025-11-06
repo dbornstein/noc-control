@@ -101,7 +101,6 @@ def agent_listen(cfg):
     pubnub = PubNub(pnconfig)
 
     setup_devices_for_location(cfg)
-    print(json.dumps(cfg.get('localDevices'),indent=4))
 
     status_listener = StatusListener()
     pubnub.add_listener(status_listener)
@@ -201,6 +200,9 @@ def process_message(cfg, message):
             print(f'Device Type: {device_type}')
 
             if device_type == 'magwell':
+                print('-----------------')
+                print(json.dumps(device,indent=4))
+                print('-----------------')
 
                 params = {
                     "method": "add-channel",
