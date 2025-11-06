@@ -7,7 +7,6 @@ from msg_logger import MsgLogger
 from msg_logger import LOG
 
 
-
 def magwell_login(cfg, device):
 
     device_ip = device.get('ipAddress')
@@ -47,6 +46,9 @@ def magwell_login(cfg, device):
             print(f'\tsetting sid: {sid} on {device_id}')
             device['status'] = 'online'
             device['sid'] = sid
+            
+            print(json.dumps(cfg.get('localDevices'),indent=4))
+
             cfg['localDevices'][device_id] = device
             LOG.set('magwell_device_status', 'online')
             return True
