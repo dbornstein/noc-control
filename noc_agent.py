@@ -210,12 +210,13 @@ def process_message(cfg, message):
                 }
                 send_magwell_command(cfg, device_id, params)
 
+               #     "hotkey": "none",
+               #     "mw-bitrate": 4096,
                 params = {
                     "method": "add-channel",
                     "name": stream_name,
                     "url": stream_url,
-                    "hotkey": "none",
-                    "mw-bitrate": 4096,
+                    
                     "mw-buffer-duration": 20
                 }
                 send_magwell_command(cfg, device_id, params)
