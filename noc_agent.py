@@ -204,11 +204,7 @@ def process_message(cfg, message):
                 print(json.dumps(device,indent=4))
                 print('-----------------')
 
-                params = {
-                    "method": "del-channel",
-                    "name": stream_name
-                }
-                send_magwell_command(cfg, device_id, params)
+
 
                #     "hotkey": "none",
                #     "mw-bitrate": 4096,
@@ -216,8 +212,13 @@ def process_message(cfg, message):
                     "method": "add-channel",
                     "name": stream_name,
                     "url": stream_url,
-                    
                     "mw-buffer-duration": 10
+                }
+                send_magwell_command(cfg, device_id, params)
+
+                params = {
+                    "method": "set-playback-config",
+                    "buffer-duration": 10
                 }
                 send_magwell_command(cfg, device_id, params)
 
