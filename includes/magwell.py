@@ -47,7 +47,7 @@ def magwell_login(cfg, device):
             device['status'] = 'online'
             device['sid'] = sid
             
-            print(json.dumps(cfg.get('localDevices'),indent=4))
+            #print(json.dumps(cfg.get('localDevices'),indent=4))
 
             cfg['localDevices'][device_id] = device
             LOG.set('magwell_device_status', 'online')
