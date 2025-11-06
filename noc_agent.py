@@ -217,8 +217,9 @@ def process_message(cfg, message):
                 send_magwell_command(cfg, device_id, params)
 
                 params = {
-                    "method": "set-playback-config",
-                    "buffer-duration": 10
+                    "name": stream_name,
+                    "method": "modify-channel",
+                    "mw-buffer-duration": 10
                 }
                 send_magwell_command(cfg, device_id, params)
 
