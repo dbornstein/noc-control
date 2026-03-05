@@ -212,7 +212,7 @@ class CloudWatchLogger:
             resp = client.put_log_events(**args)
             print(f'Log sent to cloudwatch: {self.log_group}')
             self._seq_token = resp.get("nextSequenceToken")
-        except InvalidSequenceTokenException:
+        except client.exceptions.InvalidSequenceTokenException:
             # Refresh token and retry once
             desc = client.describe_log_streams(
                 logGroupName=self.log_group,
