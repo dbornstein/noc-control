@@ -1,0 +1,22 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Egg / build artifacts
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+
+# Local agent config (contains API keys — never commit)
+agent_config.json
+
+# TLS certificates and private keys
+*.pem
+*.key
+*.csr
+*.srl
+*.cnf
