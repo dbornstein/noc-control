@@ -44,11 +44,14 @@ import hmac
 import json
 import ssl
 import threading
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 import urllib3
+from urllib3.exceptions import ProtocolError
+from urllib3.util.retry import Retry
 
 from .devices.clearcom import get_token
 
@@ -56,10 +59,24 @@ from .devices.clearcom import get_token
 _PROXY_PREFIX = '/clearcom/'
 _HEALTH_PATH  = '/healthz'
 
+# Default token refresh interval (seconds) when clearcomDialer.tokenRefreshSecs
+# is not set.  ClearCom's admin JWT typically lives an hour; refreshing every
+# 20 minutes keeps us comfortably ahead of expiry without hammering the LQ.
+_DEFAULT_TOKEN_REFRESH_SECS = 1200
+
 # Shared urllib3 pool — thread-safe by design.
+#
+# Retry policy:
+#   - 1 retry on connect/read errors (covers stale keepalive sockets the LQ
+#     dropped during idle — we'd otherwise return 502 to the browser).
+#   - status=0 / no status retries — we don't want to silently retry on 5xx.
+#   - allowed_methods left at urllib3's default (idempotent only: GET, HEAD,
+#     OPTIONS, PUT, DELETE, TRACE).  POST will NOT retry, so we won't risk
+#     duplicate dial commands if the LQ resets during a POST.
 _HTTP = urllib3.PoolManager(
     timeout=urllib3.Timeout(connect=5.0, read=15.0),
-    retries=False,
+    retries=Retry(total=1, connect=1, read=1, redirect=0, status=0,
+                  raise_on_status=False),
     num_pools=4,
     maxsize=16,
 )
@@ -254,7 +271,19 @@ def start_proxy_server(state: dict, reporter=None):
                 'Authorization': f'Bearer {tok}' if tok else '',
                 'Content-Type':  content_type,
             }
-            r = _HTTP.request(method, url, body=body or None, headers=headers)
+
+            # First attempt.  urllib3.Retry covers idempotent methods; we add
+            # one application-level retry for POST as well, gated on
+            # ProtocolError (i.e. the upstream tore down the socket before
+            # sending any bytes — provably did NOT process the request).
+            try:
+                r = _HTTP.request(method, url, body=body or None,
+                                  headers=headers)
+            except ProtocolError as e:
+                print(f'[proxy] upstream connection reset on {method} {url} '
+                      f'({e}); retrying with a fresh connection')
+                r = _HTTP.request(method, url, body=body or None,
+                                  headers=headers)
 
             if r.status == 401:
                 print('[proxy] upstream 401 — re-authenticating and retrying once')
@@ -298,6 +327,37 @@ def start_proxy_server(state: dict, reporter=None):
             print(f'[proxy] crashed: {e}')
             traceback.print_exc()
 
+    def _token_refresher():
+        # In proxy mode the legacy clearcom-token-refresh task in loop.py is
+        # disabled (mutually exclusive with the proxy).  Without this thread
+        # the JWT would only ever get refreshed on a 401 from the LQ, which
+        # leaves a window where every browser request takes an extra round
+        # trip while the proxy re-auths.  Running our own refresh keeps the
+        # cached token warm AND keeps pushing it to AWS for any UI client
+        # still on the legacy auth path during rollout.
+        interval = int(
+            (state['cfg'].get('clearcomDialer') or {}).get(
+                'tokenRefreshSecs', _DEFAULT_TOKEN_REFRESH_SECS)
+        )
+        while True:
+            time.sleep(interval)
+            try:
+                if token_cache.refresh(state['cfg'], reporter):
+                    print('[proxy] periodic token refresh OK '
+                          f'(next in {interval}s)')
+                else:
+                    print('[proxy] periodic token refresh FAILED '
+                          '(will retry next cycle / on 401)')
+            except Exception as e:
+                # Never let a bad refresh kill the thread — log and continue.
+                print(f'[proxy] periodic token refresh raised: {e}')
+                traceback.print_exc()
+
     t = threading.Thread(target=_serve, name='clearcom-proxy', daemon=True)
     t.start()
+
+    refresh_t = threading.Thread(target=_token_refresher,
+                                 name='clearcom-token-refresh', daemon=True)
+    refresh_t.start()
+
     return t
