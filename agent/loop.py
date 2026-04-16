@@ -207,22 +207,39 @@ def run(cfg: dict, log, version: str) -> None:
 
     # ClearCom integration — two mutually-exclusive paths.
     #
-    # NEW (preferred, set clearcomDialer.proxyEnabled: true):
-    #   Agent runs an in-process HTTP(S) proxy.  Browser calls go through
-    #   the proxy, which holds a single admin JWT in memory and handles
-    #   re-auth on 401 transparently.  Zero session collisions.  The proxy
-    #   also pushes each freshly acquired token to AWS so any UI client
+    # NEW (preferred, set clearcomProxy.enabled: true):
+    #   ONE designated agent (clearcomProxy.agentId == my agentId) runs an
+    #   in-process HTTP(S) proxy.  The browser calls the proxy, which holds
+    #   a single admin JWT in memory and handles 401 recovery transparently.
+    #   Other agents do nothing on ClearCom — avoids session collisions.
+    #   The proxy also pushes each freshly acquired token to AWS so any UI
     #   still on the legacy path keeps working during rollout.
     #
-    # LEGACY (proxyEnabled false/missing):
+    # LEGACY (clearcomProxy.enabled false/missing):
     #   A background task logs in every tokenRefreshSecs seconds and pushes
-    #   the JWT to AWS.  Browser reads it from AWS via dialer_get_token
-    #   and calls ClearCom directly.  Suffers from session collisions when
-    #   multiple agents/UIs are active at once.
-    clearcom_cfg = cfg.get('clearcomDialer') or {}
-    if clearcom_cfg.get('proxyEnabled'):
-        from .proxy import start_proxy_server
-        start_proxy_server(state, reporter)
+    #   the JWT to AWS.  Browser reads it via dialer_get_token and calls
+    #   ClearCom directly.  Vulnerable to session collisions when multiple
+    #   agents or browsers are active at once.
+    clearcom_cfg   = cfg.get('clearcomDialer') or {}
+    proxy_cfg      = cfg.get('clearcomProxy')  or {}
+    local_agent_id = cfg.get('agentId', '')
+    proxy_agent_id = proxy_cfg.get('agentId', '')
+
+    if proxy_cfg.get('enabled'):
+        if not proxy_agent_id:
+            print('[clearcom] REFUSING to start proxy: clearcomProxy.enabled=true '
+                  'but clearcomProxy.agentId is empty. Set it to exactly one '
+                  "agent's agentId to avoid multi-agent session collisions. "
+                  'No ClearCom activity will run on this agent.')
+        elif proxy_agent_id != local_agent_id:
+            print(f'[clearcom] not the designated proxy agent '
+                  f'(local={local_agent_id!r}, designated={proxy_agent_id!r}) '
+                  f'— no ClearCom activity on this agent.')
+        else:
+            print(f'[clearcom] this agent ({local_agent_id!r}) IS the designated '
+                  f'proxy — starting proxy thread.')
+            from .proxy import start_proxy_server
+            start_proxy_server(state, reporter)
     elif clearcom_cfg:
         interval = clearcom_cfg.get('tokenRefreshSecs', 1200)
         from .devices.clearcom import get_token as _cc_get_token

@@ -16,15 +16,24 @@ header, compared constant-time.  Warp (network layer) plus the secret
 (application layer) provide defense in depth for an internal on-prem
 dialer tool.
 
-Started as a daemon thread from agent/loop.py when
-clearcomDialer.proxyEnabled is truthy in config.
+Started as a daemon thread from agent/loop.py when the local agent is
+the designated proxy agent (clearcomProxy.agentId == my agentId).
 
-Configuration (under clearcomDialer in agent config):
-  proxyEnabled      bool   — master switch; if false the proxy never starts.
-  proxyPort         int    — local port to bind (default 8765).
-  proxySharedSecret str    — REQUIRED; proxy refuses to start without it.
-  proxyCertPath     str    — optional; PEM cert for TLS.
-  proxyKeyPath      str    — optional; PEM key for TLS.
+Configuration sections in the agent config:
+
+  clearcomProxy (this file):
+    enabled      bool   — master switch; loop.py checks this too.
+    agentId      str    — which agent runs the proxy; loop.py enforces.
+    port         int    — local port to bind (default 8765).
+    url          str    — public URL the UI calls to reach this proxy.
+    sharedSecret str    — REQUIRED; proxy refuses to start without it.
+    certPath     str    — optional; PEM cert for TLS.
+    keyPath      str    — optional; PEM key for TLS.
+
+  clearcomDialer (read by get_token()):
+    host         str    — upstream LQ URL, e.g. http://10.11.2.7
+    username     str    — admin
+    password     str    — admin password
 
 Endpoints:
   GET  /healthz                — liveness check, also reports upstream host.
@@ -106,20 +115,21 @@ def start_proxy_server(state: dict, reporter=None):
 
     Returns the Thread, or None if the proxy is disabled / misconfigured.
     """
-    cfg = state['cfg']
-    dialer = cfg.get('clearcomDialer') or {}
+    cfg        = state['cfg']
+    proxy_cfg  = cfg.get('clearcomProxy')  or {}
+    dialer_cfg = cfg.get('clearcomDialer') or {}
 
-    if not dialer.get('proxyEnabled'):
-        print('[proxy] clearcomDialer.proxyEnabled is false — proxy not starting')
+    if not proxy_cfg.get('enabled'):
+        print('[proxy] clearcomProxy.enabled is false — proxy not starting')
         return None
 
-    port   = int(dialer.get('proxyPort') or 8765)
-    secret = dialer.get('proxySharedSecret') or ''
-    cert   = dialer.get('proxyCertPath') or ''
-    key    = dialer.get('proxyKeyPath')  or ''
+    port   = int(proxy_cfg.get('port') or 8765)
+    secret = proxy_cfg.get('sharedSecret') or ''
+    cert   = proxy_cfg.get('certPath') or ''
+    key    = proxy_cfg.get('keyPath')  or ''
 
     if not secret:
-        print('[proxy] REFUSING to start: clearcomDialer.proxySharedSecret is empty. '
+        print('[proxy] REFUSING to start: clearcomProxy.sharedSecret is empty. '
               'This would expose the ClearCom admin session to anyone who can '
               f'reach this host on port {port}.')
         return None
@@ -272,7 +282,7 @@ def start_proxy_server(state: dict, reporter=None):
                 scheme = 'http'
 
             print(f'[proxy] ClearCom proxy listening on {scheme}://0.0.0.0:{port}'
-                  f' (upstream={dialer.get("host", "?")})')
+                  f' (upstream={dialer_cfg.get("host", "?")})')
 
             # Warm the token cache so the first real request doesn't eat the
             # login round-trip.
