@@ -1,6 +1,18 @@
 import json
+import base64
 import time
 import urllib3
+
+
+def _jwt_exp(token: str) -> int:
+    """Extract the exp claim from a JWT without signature verification."""
+    try:
+        payload = token.split('.')[1]
+        padding = (4 - len(payload) % 4) % 4
+        decoded = base64.urlsafe_b64decode(payload + '=' * padding)
+        return int(json.loads(decoded).get('exp', 0))
+    except Exception:
+        return 0
 
 
 class StatusReporter:
@@ -43,6 +55,32 @@ class StatusReporter:
         } for deviceId, rec in devices.items()}
 
         self._post(url, payload)
+
+    def push_clearcom_token(self, token: str) -> None:
+        """
+        Push a freshly obtained ClearCom JWT to AWS so the UI can use it
+        without going through a browser login (which hits CORS restrictions).
+
+        Stored in DynamoDB agents table under agentId='clearcom-session'.
+        """
+        config_id = self._cfg.get('configId') or self._cfg.get('localConfig', {}).get('configId')
+        endpoint  = self._cfg.get('controlEndpoint', '')
+
+        if not endpoint:
+            print('StatusReporter: controlEndpoint not configured — skipping clearcom token push')
+            return
+
+        url = endpoint.format(configId=config_id, operation='clearcom_token')
+        # Use the JWT's own exp claim so the UI knows exactly when ClearCom will reject it.
+        # Fall back to 30 min if we can't decode it.
+        jwt_exp = _jwt_exp(token)
+        expires_at = jwt_exp if jwt_exp > int(time.time()) else int(time.time()) + 1800
+        payload = {
+            'token':     token,
+            'expiresAt': expires_at,
+        }
+        self._post(url, payload)
+        print('StatusReporter: ClearCom token pushed to AWS')
 
     def push_heartbeat(self, version: str, devices: dict) -> None:
         """

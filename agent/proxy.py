@@ -1,0 +1,293 @@
+"""
+agent/proxy.py — HTTP(S) reverse proxy for the ClearCom LQ REST API.
+
+    Browser ──HTTP(S)──▶ this proxy ──HTTP──▶ ClearCom LQ
+             (Warp VPN)                       (local network)
+
+The proxy holds the ClearCom admin JWT in memory, injects it on every
+upstream request, and transparently re-authenticates on 401 before
+retrying — so the browser never sees auth failures and there is exactly
+ONE upstream ClearCom session ever.  This eliminates the session-collision
+problem inherent in having both the agent and the browser hit the LQ
+directly.
+
+Auth to the proxy itself is a shared secret in the X-NOC-Proxy-Secret
+header, compared constant-time.  Warp (network layer) plus the secret
+(application layer) provide defense in depth for an internal on-prem
+dialer tool.
+
+Started as a daemon thread from agent/loop.py when
+clearcomDialer.proxyEnabled is truthy in config.
+
+Configuration (under clearcomDialer in agent config):
+  proxyEnabled      bool   — master switch; if false the proxy never starts.
+  proxyPort         int    — local port to bind (default 8765).
+  proxySharedSecret str    — REQUIRED; proxy refuses to start without it.
+  proxyCertPath     str    — optional; PEM cert for TLS.
+  proxyKeyPath      str    — optional; PEM key for TLS.
+
+Endpoints:
+  GET  /healthz                — liveness check, also reports upstream host.
+  ANY  /clearcom/<api path>    — forwarded to ClearCom with admin JWT injected.
+  OPTIONS /clearcom/*          — CORS preflight handler.
+"""
+import hmac
+import json
+import ssl
+import threading
+import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+import urllib3
+
+from .devices.clearcom import get_token
+
+
+_PROXY_PREFIX = '/clearcom/'
+_HEALTH_PATH  = '/healthz'
+
+# Shared urllib3 pool — thread-safe by design.
+_HTTP = urllib3.PoolManager(
+    timeout=urllib3.Timeout(connect=5.0, read=15.0),
+    retries=False,
+    num_pools=4,
+    maxsize=16,
+)
+
+
+# ---------------------------------------------------------------------------
+# Token cache — one per proxy instance, shared across handler threads.
+# ---------------------------------------------------------------------------
+
+class _TokenCache:
+    """Thread-safe cache for the current ClearCom JWT.
+
+    Reads are lock-free (Python string assignment is atomic).  Refreshes
+    are serialized so two concurrent 401s don't trigger two login calls.
+    """
+
+    def __init__(self):
+        self._tok = ''
+        self._refresh_lock = threading.Lock()
+
+    def get(self) -> str:
+        return self._tok
+
+    def refresh(self, cfg: dict, reporter=None) -> bool:
+        with self._refresh_lock:
+            tok = get_token(cfg)
+            if not tok:
+                return False
+            self._tok = tok
+            # Best-effort push to AWS so legacy UI clients keep working.
+            if reporter is not None:
+                try:
+                    reporter.push_clearcom_token(tok)
+                except Exception as e:
+                    print(f'[proxy] non-fatal: push_clearcom_token failed: {e}')
+            return True
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def start_proxy_server(state: dict, reporter=None):
+    """Start the ClearCom proxy in a background daemon thread.
+
+    state is the {'cfg': cfg} dict from loop.run() — reading through it on
+    every request means a 'refresh' command picks up new credentials
+    without restarting the proxy.
+
+    reporter, if supplied, is used to push every freshly acquired JWT to
+    AWS so that legacy UI clients (still using dialer_get_token) keep
+    working during rollout.
+
+    Returns the Thread, or None if the proxy is disabled / misconfigured.
+    """
+    cfg = state['cfg']
+    dialer = cfg.get('clearcomDialer') or {}
+
+    if not dialer.get('proxyEnabled'):
+        print('[proxy] clearcomDialer.proxyEnabled is false — proxy not starting')
+        return None
+
+    port   = int(dialer.get('proxyPort') or 8765)
+    secret = dialer.get('proxySharedSecret') or ''
+    cert   = dialer.get('proxyCertPath') or ''
+    key    = dialer.get('proxyKeyPath')  or ''
+
+    if not secret:
+        print('[proxy] REFUSING to start: clearcomDialer.proxySharedSecret is empty. '
+              'This would expose the ClearCom admin session to anyone who can '
+              f'reach this host on port {port}.')
+        return None
+
+    token_cache = _TokenCache()
+
+    # -- Handler ----------------------------------------------------------
+
+    class _Handler(BaseHTTPRequestHandler):
+        # Quieter logs — BaseHTTPRequestHandler otherwise prints every line
+        # to stderr with its own format.
+        def log_message(self, fmt, *args):  # noqa: D401 (stdlib override)
+            print('[proxy] ' + (fmt % args))
+
+        def _send_cors_headers(self):
+            origin = self.headers.get('Origin', '*')
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Methods',
+                             'GET, POST, DELETE, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers',
+                             'Content-Type, X-NOC-Proxy-Secret')
+            self.send_header('Access-Control-Max-Age', '600')
+
+        def _send_json(self, status: int, payload: dict):
+            body = json.dumps(payload).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):  # noqa: N802
+            self.send_response(204)
+            self._send_cors_headers()
+            self.end_headers()
+
+        def do_GET(self):     self._dispatch('GET')        # noqa: N802
+        def do_POST(self):    self._dispatch('POST')       # noqa: N802
+        def do_DELETE(self):  self._dispatch('DELETE')     # noqa: N802
+        def do_PUT(self):     self._dispatch('PUT')        # noqa: N802
+
+        # ------------------------------------------------------------------
+
+        def _dispatch(self, method: str):
+            path = urlsplit(self.path).path
+
+            if path == _HEALTH_PATH:
+                self._send_json(200, {
+                    'ok':       True,
+                    'upstream': ((state['cfg'].get('clearcomDialer') or {})
+                                 .get('host') or ''),
+                    'hasToken': bool(token_cache.get()),
+                })
+                return
+
+            if not path.startswith(_PROXY_PREFIX):
+                self._send_json(404, {'error': 'not found'})
+                return
+
+            provided = self.headers.get('X-NOC-Proxy-Secret', '')
+            if not hmac.compare_digest(provided, secret):
+                self._send_json(401, {'error': 'invalid or missing proxy secret'})
+                return
+
+            try:
+                self._forward(method, path)
+            except Exception as exc:
+                print(f'[proxy] error on {method} {path}: {exc}')
+                traceback.print_exc()
+                self._send_json(502, {'error': f'proxy error: {exc}'})
+
+        def _forward(self, method: str, path: str):
+            cfg_live = state['cfg']
+            upstream_host = ((cfg_live.get('clearcomDialer') or {})
+                             .get('host') or '').rstrip('/')
+            if not upstream_host:
+                self._send_json(500, {'error': 'ClearCom host not configured'})
+                return
+
+            # /clearcom/api/1/foo  ->  <host>/api/1/foo
+            upstream_path = path[len(_PROXY_PREFIX):]
+            query = urlsplit(self.path).query
+            url = f'{upstream_host}/{upstream_path}'
+            if query:
+                url += '?' + query
+
+            body = b''
+            length = int(self.headers.get('Content-Length') or 0)
+            if length:
+                body = self.rfile.read(length)
+
+            content_type_in = self.headers.get('Content-Type') or 'application/json'
+            response = self._upstream_request(method, url, body, content_type_in,
+                                              cfg_live)
+
+            data = response.data if response is not None else b''
+            status = response.status if response is not None else 502
+            content_type_out = 'application/json'
+            if response is not None:
+                for k, v in response.headers.items():
+                    if k.lower() == 'content-type':
+                        content_type_out = v
+                        break
+
+            self.send_response(status)
+            self.send_header('Content-Type', content_type_out)
+            self.send_header('Content-Length', str(len(data)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _upstream_request(self, method: str, url: str, body: bytes,
+                              content_type: str, cfg_live: dict):
+            tok = token_cache.get()
+            if not tok:
+                token_cache.refresh(cfg_live, reporter)
+                tok = token_cache.get()
+
+            headers = {
+                'Authorization': f'Bearer {tok}' if tok else '',
+                'Content-Type':  content_type,
+            }
+            r = _HTTP.request(method, url, body=body or None, headers=headers)
+
+            if r.status == 401:
+                print('[proxy] upstream 401 — re-authenticating and retrying once')
+                if token_cache.refresh(cfg_live, reporter):
+                    headers['Authorization'] = f'Bearer {token_cache.get()}'
+                    r = _HTTP.request(method, url, body=body or None,
+                                      headers=headers)
+            return r
+
+    # -- Server -----------------------------------------------------------
+
+    class _ThreadedServer(ThreadingHTTPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
+    def _serve():
+        try:
+            server = _ThreadedServer(('0.0.0.0', port), _Handler)
+            if cert and key:
+                ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                ctx.load_cert_chain(certfile=cert, keyfile=key)
+                server.socket = ctx.wrap_socket(server.socket, server_side=True)
+                scheme = 'https'
+            else:
+                scheme = 'http'
+
+            print(f'[proxy] ClearCom proxy listening on {scheme}://0.0.0.0:{port}'
+                  f' (upstream={dialer.get("host", "?")})')
+
+            # Warm the token cache so the first real request doesn't eat the
+            # login round-trip.
+            if token_cache.refresh(cfg, reporter):
+                print('[proxy] initial ClearCom login succeeded')
+            else:
+                print('[proxy] initial ClearCom login FAILED — will retry on first request')
+
+            server.serve_forever()
+        except OSError as e:
+            print(f'[proxy] FAILED to bind port {port}: {e}')
+        except Exception as e:
+            print(f'[proxy] crashed: {e}')
+            traceback.print_exc()
+
+    t = threading.Thread(target=_serve, name='clearcom-proxy', daemon=True)
+    t.start()
+    return t

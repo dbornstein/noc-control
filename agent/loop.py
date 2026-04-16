@@ -9,6 +9,7 @@ from pubnub.pubnub import PubNub, SubscribeListener
 from .config import load_config
 from .status import StatusReporter
 from .devices import DEVICE_REGISTRY
+from .tasks  import start_background_task
 
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,42 @@ def run(cfg: dict, log, version: str) -> None:
 
     # state dict lets process_message update cfg in-place on refresh
     state = {'cfg': cfg}
+
+    # ------------------------------------------------------------------
+    # Background tasks
+    # ------------------------------------------------------------------
+
+    # ClearCom integration — two mutually-exclusive paths.
+    #
+    # NEW (preferred, set clearcomDialer.proxyEnabled: true):
+    #   Agent runs an in-process HTTP(S) proxy.  Browser calls go through
+    #   the proxy, which holds a single admin JWT in memory and handles
+    #   re-auth on 401 transparently.  Zero session collisions.  The proxy
+    #   also pushes each freshly acquired token to AWS so any UI client
+    #   still on the legacy path keeps working during rollout.
+    #
+    # LEGACY (proxyEnabled false/missing):
+    #   A background task logs in every tokenRefreshSecs seconds and pushes
+    #   the JWT to AWS.  Browser reads it from AWS via dialer_get_token
+    #   and calls ClearCom directly.  Suffers from session collisions when
+    #   multiple agents/UIs are active at once.
+    clearcom_cfg = cfg.get('clearcomDialer') or {}
+    if clearcom_cfg.get('proxyEnabled'):
+        from .proxy import start_proxy_server
+        start_proxy_server(state, reporter)
+    elif clearcom_cfg:
+        interval = clearcom_cfg.get('tokenRefreshSecs', 1200)
+        from .devices.clearcom import get_token as _cc_get_token
+
+        def _clearcom_token_refresh():
+            token = _cc_get_token(state['cfg'])
+            if token:
+                reporter.push_clearcom_token(token)
+            else:
+                print('[tasks] ClearCom token refresh failed — skipping push')
+
+        start_background_task(_clearcom_token_refresh, interval,
+                              name='clearcom-token-refresh')
 
     pn_cfg = cfg.get('pubnubConfig', {})
     pnconfig = PNConfiguration()

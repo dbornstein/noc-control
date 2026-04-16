@@ -4,6 +4,49 @@ import urllib3
 from .base import DeviceBase
 
 
+# ---------------------------------------------------------------------------
+# Module-level helper — usable without a device instance
+# ---------------------------------------------------------------------------
+
+def get_token(cfg: dict) -> str:
+    """
+    Log in to ClearCom and return the JWT string, or '' on failure.
+
+    Used by the background token-refresh task so the UI can fetch a
+    pre-authenticated token from AWS instead of logging in directly
+    (which has CORS constraints in the browser).
+    """
+    dialer_cfg = cfg.get('clearcomDialer', {})
+    host       = dialer_cfg.get('host', '').rstrip('/')
+    username   = dialer_cfg.get('username', 'admin')
+    password   = dialer_cfg.get('password', '')
+
+    if not host or not password:
+        print('ClearCom get_token: missing host or password in clearcomDialer config')
+        return ''
+
+    url  = f'{host}/api/1/auth/login'
+    body = json.dumps({'username': username, 'password': password}).encode('utf-8')
+
+    try:
+        http     = urllib3.PoolManager(timeout=urllib3.Timeout(connect=5.0, read=10.0))
+        response = http.request('POST', url, body=body,
+                                headers={'Content-Type': 'application/json'})
+        http.clear()
+
+        for header, value in response.headers.items():
+            if header.lower() == 'authorization' and value.startswith('Bearer '):
+                token = value.split(' ', 1)[1].strip()
+                print(f'ClearCom get_token: OK (host={host})')
+                return token
+
+        print(f'ClearCom get_token: no JWT in response (HTTP {response.status})')
+        return ''
+    except Exception as e:
+        print(f'ClearCom get_token exception: {e}')
+        return ''
+
+
 class ClearComDevice(DeviceBase):
     """
     ClearCom Skyport SIP dialer, accessed via the ClearCom REST API.
@@ -37,49 +80,15 @@ class ClearComDevice(DeviceBase):
     # ------------------------------------------------------------------
 
     def login(self) -> bool:
-        dialer_cfg = self.cfg.get('clearcomDialer', {})
-        host       = dialer_cfg.get('host', '').rstrip('/')
-        username   = dialer_cfg.get('username', 'admin')
-        password   = dialer_cfg.get('password', '')
-
-        if not host or not password:
-            print('ClearCom: missing host or password in clearcomDialer config')
-            self.device['status'] = 'config_error'
-            return False
-
-        self._host = host
-        url        = f'{host}/api/1/auth/login'
-        body       = json.dumps({'username': username, 'password': password}).encode('utf-8')
-
-        try:
-            http     = urllib3.PoolManager(timeout=urllib3.Timeout(connect=5.0, read=10.0))
-            response = http.request(
-                'POST', url,
-                body=body,
-                headers={'Content-Type': 'application/json'},
-            )
-            http.clear()
-
-            auth_header = ''
-            for header, value in response.headers.items():
-                if header.lower() == 'authorization':
-                    auth_header = value
-                    break
-
-            if not auth_header.startswith('Bearer '):
-                print(f'ClearCom login failed — no JWT in response (HTTP {response.status})')
-                self.device['status'] = 'offline'
-                return False
-
-            self._token = auth_header.split(' ', 1)[1].strip()
+        token = get_token(self.cfg)
+        if token:
+            dialer_cfg   = self.cfg.get('clearcomDialer', {})
+            self._host   = dialer_cfg.get('host', '').rstrip('/')
+            self._token  = token
             self.device['status'] = 'online'
-            print(f'ClearCom login OK — host={host}')
             return True
-
-        except Exception as e:
-            print(f'ClearCom login exception: {e}')
-            self.device['status'] = 'offline'
-            return False
+        self.device['status'] = 'offline'
+        return False
 
     # ------------------------------------------------------------------
     # Commands
