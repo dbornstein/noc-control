@@ -50,7 +50,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 import urllib3
-from urllib3.exceptions import ProtocolError
+from urllib3.exceptions import MaxRetryError, ProtocolError
 from urllib3.util.retry import Retry
 
 from .devices.clearcom import get_token
@@ -64,15 +64,26 @@ _HEALTH_PATH  = '/healthz'
 # 20 minutes keeps us comfortably ahead of expiry without hammering the LQ.
 _DEFAULT_TOKEN_REFRESH_SECS = 1200
 
+# How many total attempts _safe_request makes per browser request.  The first
+# one is via urllib3 (with its own internal retry below); each subsequent
+# attempt clears the pool first so we don't reuse a stale keepalive socket.
+_MAX_UPSTREAM_ATTEMPTS = 3
+
 # Shared urllib3 pool — thread-safe by design.
 #
 # Retry policy:
-#   - 1 retry on connect/read errors (covers stale keepalive sockets the LQ
-#     dropped during idle — we'd otherwise return 502 to the browser).
+#   - 1 retry on connect/read errors (covers a single stale keepalive socket
+#     the LQ dropped during idle — we'd otherwise return 502 to the browser).
 #   - status=0 / no status retries — we don't want to silently retry on 5xx.
 #   - allowed_methods left at urllib3's default (idempotent only: GET, HEAD,
 #     OPTIONS, PUT, DELETE, TRACE).  POST will NOT retry, so we won't risk
 #     duplicate dial commands if the LQ resets during a POST.
+#
+# If urllib3's one retry also dies we raise MaxRetryError; _safe_request
+# catches that, clears the entire pool, sleeps briefly, and tries again
+# with fresh TCP sockets.  In practice the LQ occasionally resets every
+# socket in the pool at once (keepalive timeout expired while we were idle),
+# so this outer loop is what actually recovers.
 _HTTP = urllib3.PoolManager(
     timeout=urllib3.Timeout(connect=5.0, read=15.0),
     retries=Retry(total=1, connect=1, read=1, redirect=0, status=0,
@@ -80,6 +91,47 @@ _HTTP = urllib3.PoolManager(
     num_pools=4,
     maxsize=16,
 )
+
+
+# Methods we're willing to retry at the application level on a
+# ProtocolError / MaxRetryError.  POST is intentionally excluded — on a
+# true post-write reset a dial command could get fired twice.
+_APP_RETRY_METHODS = {'GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'}
+
+
+def _safe_request(method, url, *, body=None, headers=None, log_prefix='[proxy]'):
+    """Wrap urllib3 with pool-reset retry for the two failure modes we
+    actually see against the ClearCom LQ:
+
+      * ProtocolError        (ConnectionResetError before urllib3 retried)
+      * MaxRetryError        (ConnectionReset after urllib3 already retried)
+
+    On either, clear the entire pool so the next attempt dials a fresh TCP
+    connection (we've learned the LQ just nuked its side of the pool),
+    sleep a short backoff, and retry — up to _MAX_UPSTREAM_ATTEMPTS for
+    idempotent methods, once only for POST.
+    """
+    attempts = _MAX_UPSTREAM_ATTEMPTS if method.upper() in _APP_RETRY_METHODS else 1
+    last_exc = None
+    for i in range(attempts):
+        try:
+            return _HTTP.request(method, url, body=body, headers=headers or {})
+        except (ProtocolError, MaxRetryError) as exc:
+            last_exc = exc
+            if i == attempts - 1:
+                break
+            # Discard all pooled sockets — the LQ just told us at least one
+            # in this pool is dead, and in practice usually ALL of them are.
+            try:
+                _HTTP.clear()
+            except Exception:
+                pass
+            # Exponential-ish backoff: 0.25s, 0.5s, 1.0s...
+            time.sleep(0.25 * (2 ** i))
+            print(f'{log_prefix} upstream {method} {url} reset ({exc}); '
+                  f'cleared pool, retry {i + 2}/{attempts}')
+    # Exhausted retries — re-raise so the caller turns it into a 502.
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -272,24 +324,13 @@ def start_proxy_server(state: dict, reporter=None):
                 'Content-Type':  content_type,
             }
 
-            # First attempt.  urllib3.Retry covers idempotent methods; we add
-            # one application-level retry for POST as well, gated on
-            # ProtocolError (i.e. the upstream tore down the socket before
-            # sending any bytes — provably did NOT process the request).
-            try:
-                r = _HTTP.request(method, url, body=body or None,
-                                  headers=headers)
-            except ProtocolError as e:
-                print(f'[proxy] upstream connection reset on {method} {url} '
-                      f'({e}); retrying with a fresh connection')
-                r = _HTTP.request(method, url, body=body or None,
-                                  headers=headers)
+            r = _safe_request(method, url, body=body or None, headers=headers)
 
             if r.status == 401:
                 print('[proxy] upstream 401 — re-authenticating and retrying once')
                 if token_cache.refresh(cfg_live, reporter):
                     headers['Authorization'] = f'Bearer {token_cache.get()}'
-                    r = _HTTP.request(method, url, body=body or None,
+                    r = _safe_request(method, url, body=body or None,
                                       headers=headers)
             return r
 
