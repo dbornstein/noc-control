@@ -433,12 +433,11 @@ def restart_proxy_server(state: dict, reporter=None) -> None:
     if server is not None:
         print('[proxy] restart_proxy_server: shutting down current instance')
         try:
-            server.shutdown()   # blocks until serve_forever() exits
+            server.shutdown()       # blocks until serve_forever() exits
+            server.server_close()   # explicitly close the socket so the port is freed
         except Exception as e:
             print(f'[proxy] shutdown error (ignored): {e}')
-        time.sleep(0.3)         # brief pause for the OS to release the port
+        time.sleep(0.1)
 
     print('[proxy] restart_proxy_server: starting fresh instance')
     start_proxy_server(state, reporter)
-
-    return t
