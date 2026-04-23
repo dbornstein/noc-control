@@ -98,6 +98,12 @@ _HTTP = urllib3.PoolManager(
 # true post-write reset a dial command could get fired twice.
 _APP_RETRY_METHODS = {'GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'}
 
+# Module-level reference to the currently-running server so that
+# restart_proxy_server() can shut it down without needing to thread a handle
+# through the entire call stack.
+_active_server      = None
+_active_server_lock = threading.Lock()
+
 
 def _safe_request(method, url, *, body=None, headers=None, log_prefix='[proxy]'):
     """Wrap urllib3 with pool-reset retry for the two failure modes we
@@ -341,6 +347,8 @@ def start_proxy_server(state: dict, reporter=None):
         allow_reuse_address = True
 
     def _serve():
+        global _active_server
+        server = None
         try:
             server = _ThreadedServer(('0.0.0.0', port), _Handler)
             if cert and key:
@@ -354,6 +362,9 @@ def start_proxy_server(state: dict, reporter=None):
             print(f'[proxy] ClearCom proxy listening on {scheme}://0.0.0.0:{port}'
                   f' (upstream={dialer_cfg.get("host", "?")})')
 
+            with _active_server_lock:
+                _active_server = server
+
             # Warm the token cache so the first real request doesn't eat the
             # login round-trip.
             if token_cache.refresh(cfg, reporter):
@@ -361,12 +372,17 @@ def start_proxy_server(state: dict, reporter=None):
             else:
                 print('[proxy] initial ClearCom login FAILED — will retry on first request')
 
-            server.serve_forever()
+            server.serve_forever()   # blocks until shutdown() is called
+
         except OSError as e:
             print(f'[proxy] FAILED to bind port {port}: {e}')
         except Exception as e:
             print(f'[proxy] crashed: {e}')
             traceback.print_exc()
+        finally:
+            with _active_server_lock:
+                if _active_server is server:
+                    _active_server = None
 
     def _token_refresher():
         # In proxy mode the legacy clearcom-token-refresh task in loop.py is
@@ -400,5 +416,29 @@ def start_proxy_server(state: dict, reporter=None):
     refresh_t = threading.Thread(target=_token_refresher,
                                  name='clearcom-token-refresh', daemon=True)
     refresh_t.start()
+
+    return t
+
+
+def restart_proxy_server(state: dict, reporter=None) -> None:
+    """Shut down the running proxy and start a fresh instance.
+
+    Called by the 'reconnect_proxy' PubNub command.  Only restarts the proxy
+    HTTP server and re-warms the ClearCom JWT — the rest of the agent is
+    untouched.  Safe to call even if the proxy is not currently running.
+    """
+    with _active_server_lock:
+        server = _active_server
+
+    if server is not None:
+        print('[proxy] restart_proxy_server: shutting down current instance')
+        try:
+            server.shutdown()   # blocks until serve_forever() exits
+        except Exception as e:
+            print(f'[proxy] shutdown error (ignored): {e}')
+        time.sleep(0.3)         # brief pause for the OS to release the port
+
+    print('[proxy] restart_proxy_server: starting fresh instance')
+    start_proxy_server(state, reporter)
 
     return t

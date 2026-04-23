@@ -75,7 +75,8 @@ def process_message(state: dict, message: dict, reporter: StatusReporter,
         cfg     = state['cfg']
         command = message.get('command')
 
-        valid_commands = {'refresh', 'update', 'play', 'stop', 'status', 'dial', 'hangup'}
+        valid_commands = {'refresh', 'update', 'play', 'stop', 'status', 'dial', 'hangup',
+                          'reconnect_proxy'}
         if command not in valid_commands:
             from includes.exceptions import InvalidDataError
             raise InvalidDataError(f'Invalid command: {command}')
@@ -83,7 +84,7 @@ def process_message(state: dict, message: dict, reporter: StatusReporter,
         # ------------------------------------------------------------------
         # Agent-scoped commands
         # ------------------------------------------------------------------
-        if command in ('refresh', 'update'):
+        if command in ('refresh', 'update', 'reconnect_proxy'):
             agent_id       = message.get('agentId')
             local_agent_id = cfg.get('agentId')
             if agent_id != local_agent_id:
@@ -105,6 +106,18 @@ def process_message(state: dict, message: dict, reporter: StatusReporter,
             if command == 'update':
                 log.set('command_status', 'update initiated')
                 _execute_update()
+                return
+
+            if command == 'reconnect_proxy':
+                proxy_cfg = cfg.get('clearcomProxy') or {}
+                if proxy_cfg.get('enabled') and proxy_cfg.get('agentId') == local_agent_id:
+                    print('reconnect_proxy — restarting ClearCom proxy')
+                    from .proxy import restart_proxy_server
+                    restart_proxy_server(state, reporter)
+                    log.set('command_status', 'proxy restarted')
+                else:
+                    print('reconnect_proxy — not the designated proxy agent, ignoring')
+                    log.set('command_status', 'skipped — not the designated proxy agent')
                 return
 
         # ------------------------------------------------------------------
