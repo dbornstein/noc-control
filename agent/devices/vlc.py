@@ -9,10 +9,14 @@ class VlcDevice(DeviceBase):
     """
     VLC media player controlled via its built-in HTTP interface.
 
-    Config keys used:
-        vlcHostname   — hostname or IP of the VLC instance
+    All VLC-specific settings are read from the device record (self.device),
+    not from the top-level agent config (self.cfg).  They are stored on the
+    device row in DynamoDB and delivered inside serveDevices.
+
+    Config keys (on the device record):
+        vlcHostname   — hostname or IP of the VLC instance (default 'localhost')
         vlcPort       — HTTP interface port (default 8080)
-        vlcPassword   — HTTP interface password
+        vlcPassword   — HTTP interface password (default '')
         vlcAutostart  — bool; start VLC subprocess if not already running
         vlcStartDelay — seconds to wait after starting VLC before issuing commands
         vlcCommand    — path to VLC binary (default 'vlc')
@@ -21,9 +25,13 @@ class VlcDevice(DeviceBase):
 
     device_type = 'vlc'
 
+    def _vlc(self, key, default=None):
+        """Read a VLC setting from the device record."""
+        return self.device.get(key, default)
+
     def login(self) -> bool:
-        if not self.cfg.get('vlcEnabled'):
-            print('VLC not enabled in agent config — skipping')
+        if not self._vlc('vlcEnabled'):
+            print('VLC not enabled on device record — skipping')
             self.device['status'] = 'disabled'
             return False
         self.device['status'] = 'online'
@@ -34,12 +42,12 @@ class VlcDevice(DeviceBase):
     # ------------------------------------------------------------------
 
     def play(self, message: dict) -> None:
-        if not self.cfg.get('vlcEnabled'):
-            print('VLC not enabled — ignoring play command')
+        if not self._vlc('vlcEnabled'):
+            print('VLC not enabled on device record — ignoring play command')
             return
 
-        stream_url = message.get('streamUrl')
-        hostname   = self.cfg.get('vlcHostname', 'localhost')
+        stream_url = message.get('streamUrl') or ''
+        hostname   = self._vlc('vlcHostname', 'localhost') or 'localhost'
 
         if hostname in ('localhost', '127.0.0.1'):
             self._ensure_running()
@@ -48,7 +56,7 @@ class VlcDevice(DeviceBase):
         self._send_command('pl_play')
 
     def stop(self, message: dict) -> None:
-        if not self.cfg.get('vlcEnabled'):
+        if not self._vlc('vlcEnabled'):
             return
         self._send_command('pl_stop')
 
@@ -59,10 +67,10 @@ class VlcDevice(DeviceBase):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _send_command(self, command: str, input_url: str = None) -> None:
-        hostname = self.cfg.get('vlcHostname')
-        port     = self.cfg.get('vlcPort')
-        password = self.cfg.get('vlcPassword')
+    def _send_command(self, command: str, input_url: str | None = None) -> None:
+        hostname = self._vlc('vlcHostname', 'localhost') or 'localhost'
+        port     = int(self._vlc('vlcPort', 8080) or 8080)
+        password = self._vlc('vlcPassword', '') or ''
 
         http    = urllib3.PoolManager()
         headers = urllib3.util.make_headers(basic_auth=f':{password}')
@@ -80,15 +88,15 @@ class VlcDevice(DeviceBase):
 
     def _ensure_running(self) -> None:
         """Start a VLC subprocess if vlcAutostart is set and VLC isn't running."""
-        if not self.cfg.get('vlcAutostart') or self.cfg.get('_vlc_running'):
+        if not self._vlc('vlcAutostart') or self.device.get('_vlc_running'):
             return
 
-        self.cfg['_vlc_running'] = True
+        self.device['_vlc_running'] = True
 
-        port     = self.cfg.get('vlcPort')
-        password = self.cfg.get('vlcPassword')
-        delay    = self.cfg.get('vlcStartDelay', 2)
-        binary   = self.cfg.get('vlcCommand', 'vlc')
+        port     = int(self._vlc('vlcPort', 8080) or 8080)
+        password = self._vlc('vlcPassword', '') or ''
+        delay    = float(self._vlc('vlcStartDelay', 2) or 2)
+        binary   = self._vlc('vlcCommand', 'vlc') or 'vlc'
 
         cmd = [
             binary,
