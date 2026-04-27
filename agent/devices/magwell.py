@@ -69,7 +69,7 @@ class MagwellDevice(DeviceBase):
         self.device['streamName'] = stream_name
         self.device['streamUrl']  = stream_url
 
-        tuning     = self.cfg.get('magwellTuning', {})
+        tuning     = self.cfg.get('magwellTuning') or {}
         url_to_use = self._apply_url_tuning(stream_url, tuning)
 
         # add-channel → modify-channel → set-channel
