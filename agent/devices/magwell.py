@@ -70,18 +70,23 @@ class MagwellDevice(DeviceBase):
         self.device['streamUrl']  = stream_url
 
         tuning     = self.cfg.get('magwellTuning') or {}
+        proto      = self._protocol(stream_url)
         url_to_use = self._apply_url_tuning(stream_url, tuning)
 
+        print(f'[magwell] play: protocol={proto!r}')
+        print(f'[magwell] play: magwellTuning={tuning}')
+        print(f'[magwell] play: url_to_use={url_to_use!r}')
+        print(f'[magwell] play: api_tuning_params={self._api_tuning_params(stream_url, tuning)}')
+
         # add-channel → modify-channel → set-channel
-        add_params = {'method': 'add-channel', 'name': stream_name, 'url': url_to_use}
-        add_params.update(self._api_tuning_params(stream_url, tuning))
-        self._send(add_params)
+        # All mw-* tuning params are embedded in url_to_use per the Magwell API spec.
+        self._send({'method': 'add-channel', 'name': stream_name, 'url': url_to_use})
 
-        modify_params = {'method': 'modify-channel', 'name': stream_name}
-        modify_params.update(self._api_tuning_params(stream_url, tuning))
-        self._send(modify_params)
+        self._send({'method': 'modify-channel', 'name': stream_name, 'url': url_to_use})
 
-        self._send({'method': 'set-channel', 'name': stream_name, 'ndi-name': 'false'})
+        set_params = {'method': 'set-channel', 'name': stream_name, 'ndi-name': 'false'}
+        print(f'[magwell] set-channel params={set_params}')
+        self._send(set_params)
 
     def stop(self, message: dict) -> None:
         stream_name = self.device.get('streamName')
@@ -107,32 +112,25 @@ class MagwellDevice(DeviceBase):
 
     def _apply_url_tuning(self, url: str, tuning: dict) -> str:
         """
-        For SRT streams the Magwell device reads mw-* params directly from
-        the URL string, so we append them there.
-        For HLS/RTMP they are passed as separate API params (see _api_tuning_params),
-        so the URL is returned unchanged.
+        Magwell reads all mw-* params (and SRT params like latency) from the
+        URL query string for every protocol — they are NOT standalone API
+        parameters.  Append the protocol-specific tuning dict from magwellTuning
+        to the URL for all protocols (srt, hls, rtmp).
         """
-        proto = self._protocol(url)
-        if proto != 'srt':
+        proto  = self._protocol(url)
+        params = tuning.get(proto, {})
+        if not params:
             return url
 
-        srt_params = tuning.get('srt', {})
-        if not srt_params:
-            return url
-
-        separator  = '&' if '?' in url else '?'
-        extra      = '&'.join(f'{k}={v}' for k, v in srt_params.items())
+        separator = '&' if '?' in url else '?'
+        extra     = '&'.join(f'{k}={v}' for k, v in params.items())
         return f'{url}{separator}{extra}'
 
     def _api_tuning_params(self, url: str, tuning: dict) -> dict:
         """
-        For HLS streams, return tuning params to be included as extra keys in
-        the Magwell API call (add-channel / modify-channel).
-        For SRT/RTMP those params live in the URL, so return an empty dict.
+        All tuning params are embedded in the URL (see _apply_url_tuning).
+        This method is kept for compatibility but always returns an empty dict.
         """
-        proto = self._protocol(url)
-        if proto == 'hls':
-            return dict(tuning.get('hls', {}))
         return {}
 
     def _send(self, params: dict, retries: int = 3) -> bool:
