@@ -3,10 +3,11 @@ import subprocess
 import time
 import traceback
 
+from pubnub.enums import PNStatusCategory
 from pubnub.pnconfiguration import PNConfiguration
 from pubnub.pubnub import PubNub, SubscribeListener
 
-from .config import load_config
+from .config import load_config, fetch_pubnub_token
 from .status import StatusReporter
 from .devices import DEVICE_REGISTRY
 from .tasks  import start_background_task
@@ -14,14 +15,66 @@ from .tasks  import start_background_task
 
 logger = logging.getLogger(__name__)
 
+# Floor for the PAM token refresh interval (seconds), regardless of TTL.
+MIN_TOKEN_REFRESH_SECS = 300
+
+
+# ---------------------------------------------------------------------------
+# PubNub PAM token handling
+# ---------------------------------------------------------------------------
+
+def apply_pubnub_token(pubnub, pn_cfg: dict, source: str = 'config') -> bool:
+    """
+    Apply pubnubConfig.authToken (PAM v3 token minted by the control Lambda)
+    to the PubNub client.  Returns True when a token was applied.
+    """
+    token = (pn_cfg or {}).get('authToken')
+    if not token:
+        return False
+    pubnub.set_token(token)
+    ttl = (pn_cfg or {}).get('authTokenTtlMinutes')
+    print(f'PubNub PAM token applied from {source} (ttl {ttl} min)')
+    return True
+
+
+def refresh_pubnub_token(state: dict) -> None:
+    """
+    Fetch a fresh PAM token from the control Lambda and apply it.
+    Runs on a background timer (and on access-denied status events).
+    """
+    pubnub = state.get('pubnub')
+    if not pubnub:
+        return
+    res = fetch_pubnub_token(state['cfg'])
+    token = res.get('authToken')
+    if not token:
+        print('PubNub token refresh: control Lambda returned no token (open keyset?)')
+        return
+    pn_cfg = state['cfg'].setdefault('pubnubConfig', {})
+    pn_cfg['authToken'] = token
+    if res.get('ttlMinutes'):
+        pn_cfg['authTokenTtlMinutes'] = res.get('ttlMinutes')
+    apply_pubnub_token(pubnub, pn_cfg, source='refresh')
+
 
 # ---------------------------------------------------------------------------
 # PubNub status listener
 # ---------------------------------------------------------------------------
 
 class _StatusListener(SubscribeListener):
+    def __init__(self, state: dict):
+        super().__init__()
+        self._state = state
+
     def status(self, pubnub, status):
         print(f'PubNub status: {status.category.name}')
+        if status.category == PNStatusCategory.PNAccessDeniedCategory:
+            print('PubNub ACCESS DENIED — PAM token missing, expired or rejected; '
+                  'requesting a fresh token from the control Lambda')
+            try:
+                refresh_pubnub_token(self._state)
+            except Exception as exc:
+                print(f'PubNub token refresh after access-denied failed: {exc}')
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +151,9 @@ def process_message(state: dict, message: dict, reporter: StatusReporter,
                 new_cfg    = load_config(cfg)
                 state['cfg'] = new_cfg
                 reporter.__init__(new_cfg)
+                # The reloaded config carries a freshly minted PAM token.
+                if state.get('pubnub'):
+                    apply_pubnub_token(state['pubnub'], new_cfg.get('pubnubConfig'), source='refresh command')
                 setup_devices(new_cfg, reporter)
                 log.set('command_status', 'refresh complete')
                 print('Refresh complete')
@@ -271,11 +327,24 @@ def run(cfg: dict, log, version: str) -> None:
     pnconfig = PNConfiguration()
     pnconfig.subscribe_key  = pn_cfg.get('subscribeKey')
     pnconfig.publish_key    = pn_cfg.get('publishKey')
+    # user_id MUST equal the agentId: the PAM token is bound to it (authorized_uuid).
     pnconfig.user_id        = cfg.get('agentId')
     pnconfig.enable_subscribe = True
 
     pubnub = PubNub(pnconfig)
-    pubnub.add_listener(_StatusListener())
+    state['pubnub'] = pubnub
+    pubnub.add_listener(_StatusListener(state))
+
+    # Access Manager (production keyset): the control Lambda mints a read-only
+    # token for the control channel and ships it in pubnubConfig.authToken.
+    # Open/demo keysets return no token and the subscribe works unauthenticated.
+    if apply_pubnub_token(pubnub, pn_cfg, source='startup config'):
+        ttl_minutes = int(pn_cfg.get('authTokenTtlMinutes') or 0)
+        refresh_secs = max(MIN_TOKEN_REFRESH_SECS, (ttl_minutes * 60) // 2) if ttl_minutes else 6 * 3600
+        start_background_task(lambda: refresh_pubnub_token(state), refresh_secs,
+                              name='pubnub-token-refresh', run_immediately=False)
+    else:
+        print('PubNub: no PAM token in config — subscribing without Access Manager')
 
     stack   = cfg.get('stack')
     channel = pn_cfg.get('controlChannelId') or f'{stack}-pnchannel'

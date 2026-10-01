@@ -65,3 +65,22 @@ def load_config(cfg: dict, agent_id: str = None, config_id: str = None,
     new_cfg['localDevices'] = {}
 
     return new_cfg
+
+
+def fetch_pubnub_token(cfg: dict) -> dict:
+    """
+    Fetch a fresh PubNub PAM token for this agent from the control Lambda.
+
+    GET {apiEndpoint}/control/{configId}/pubnub_token/{agentId}  (x-api-key)
+
+    Returns the response dict: {agentId, channel, authToken, ttlMinutes}.
+    authToken is None when the keyset has no Access Manager (open demo keys).
+    """
+    local_cfg    = cfg.get('localConfig', {})
+    api_endpoint = local_cfg.get('apiEndpoint')
+    config_id    = local_cfg.get('configId')
+    agent_id     = local_cfg.get('agentId') or cfg.get('agentId')
+    apikey       = local_cfg.get('apiKey')
+
+    url = f'{api_endpoint}/control/{config_id}/pubnub_token/{agent_id}'
+    return download_json(url, headers={'x-api-key': apikey}) or {}
